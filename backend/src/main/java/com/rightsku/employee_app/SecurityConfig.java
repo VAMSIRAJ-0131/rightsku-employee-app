@@ -18,9 +18,12 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration
 public class SecurityConfig {
 
+    /** BCrypt cost factor. 12 is a common production choice (~0.25 s per hash). */
+    static final int BCRYPT_STRENGTH = 12;
+
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        return new BCryptPasswordEncoder(BCRYPT_STRENGTH);
     }
 
     @Bean
@@ -41,8 +44,13 @@ public class SecurityConfig {
     }
 
     @Bean
-    public JwtDecoder jwtDecoder(JwtService jwtService) {
-        return jwtService.jwtDecoderFromConfiguredSecret();
+    public JwtDecoder jwtDecoder(
+            JwtService jwtService,
+            AppUserRepository appUserRepository) {
+        // Signature, expiry and issuer checks, plus: the user must still
+        // exist, be active, and have the same role as in the token.
+        return jwtService.jwtDecoderFromConfiguredSecret(
+                new ActiveUserJwtValidator(appUserRepository));
     }
 
     @Bean
@@ -72,6 +80,9 @@ public class SecurityConfig {
             .authenticationProvider(authenticationProvider)
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
+                // Lets Spring Boot's error responses (e.g. 400) reach the
+                // client instead of being replaced by a 401.
+                .requestMatchers("/error").permitAll()
                 .requestMatchers("/api/hr/**").hasRole("HR_ADMIN")
                 .requestMatchers("/api/employee/**").hasRole("EMPLOYEE")
                 .anyRequest().authenticated()

@@ -7,6 +7,10 @@ import java.time.Instant;
 @Table(name = "app_users")
 public class AppUser {
 
+    /** Role values allowed by the app_users.role check constraint. */
+    public static final String ROLE_EMPLOYEE = "EMPLOYEE";
+    public static final String ROLE_HR_ADMIN = "HR_ADMIN";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -30,6 +34,22 @@ public class AppUser {
     private Instant updatedAt;
 
     protected AppUser() {
+    }
+
+    /**
+     * Creates a new active user. The password must already be hashed
+     * (BCrypt); plain-text passwords are never stored.
+     */
+    public static AppUser create(String email, String passwordHash, String role) {
+        if (!ROLE_EMPLOYEE.equals(role) && !ROLE_HR_ADMIN.equals(role)) {
+            throw new IllegalArgumentException("Unsupported role");
+        }
+        AppUser user = new AppUser();
+        user.email = email;
+        user.passwordHash = passwordHash;
+        user.role = role;
+        user.active = true;
+        return user;
     }
 
     @PrePersist
