@@ -2,6 +2,7 @@
 // whole app looks and behaves the same way.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon, type IconName } from './Icons'
+import { Logo } from './Logo'
 import type { Status } from '../data/sampleData'
 import { initials } from '../lib/format'
 
@@ -20,28 +21,14 @@ export function Page({ children, withNav = true }: { children: ReactNode; withNa
   )
 }
 
-export function BrandMark({ tone = 'dark' }: { tone?: 'dark' | 'light' }) {
-  const light = tone === 'light'
-  return (
-    <span className="flex items-center gap-2">
-      <span
-        className={`grid h-7 w-7 place-items-center rounded-md text-[13px] font-bold ${
-          light ? 'bg-white text-navy-900' : 'bg-navy-900 text-white'
-        }`}
-      >
-        R
-      </span>
-      <span className={`text-[13px] font-semibold tracking-[0.14em] ${light ? 'text-white' : 'text-navy-900'}`}>RIGHTSKU</span>
-    </span>
-  )
-}
-
-/** Home-screen header: brand, notifications and avatar. */
+/** Home-screen header: official logo on a white bar, plus notifications and avatar. */
 export function AppHeader({ right }: { right: ReactNode }) {
   return (
-    <header className="flex h-14 items-center justify-between px-5 pt-[env(safe-area-inset-top)]">
-      <BrandMark />
-      <div className="flex items-center gap-2">{right}</div>
+    <header className="border-b border-line bg-white pt-[env(safe-area-inset-top)]">
+      <div className="flex h-16 items-center justify-between gap-3 pl-5 pr-4">
+        <Logo className="h-9 min-w-0 shrink sm:h-10" />
+        <div className="flex shrink-0 items-center gap-2">{right}</div>
+      </div>
     </header>
   )
 }
@@ -138,7 +125,7 @@ export function IconButton({ icon, label, onClick, dot }: { icon: IconName; labe
       className="relative grid h-11 w-11 place-items-center rounded-full text-ink-soft hover:bg-mist-50"
     >
       <Icon name={icon} className="h-[22px] w-[22px]" />
-      {dot && <span className="absolute right-[11px] top-[11px] h-2 w-2 rounded-full bg-accent ring-2 ring-canvas" />}
+      {dot && <span className="absolute right-[11px] top-[11px] h-2 w-2 rounded-full bg-accent ring-2 ring-white" />}
     </button>
   )
 }

@@ -7,23 +7,28 @@
 @theme {
   --font-sans: Roboto, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
 
-  /* Structure: deep navy */
+  /* Brand colours taken from the official logo (src/assets/rightsku-logo.png) */
+  --color-brand-slate: #536d94; /* "RIGHTSKU" top and "Redefining Growth" */
+  --color-brand-cyan: #0a99d9;  /* "RIGHTSKU" bottom and the arrow mark */
+
+  /* Structure: deep navy, same hue as the logo slate */
   --color-navy-950: #0a1528;
   --color-navy-900: #0f1e38;
   --color-navy-800: #182b4d;
-  --color-navy-700: #243b63;
-  --color-navy-600: #34507f;
+  --color-navy-700: #2b4468;
+  --color-navy-600: #3f5a82;
 
-  /* Supporting: muted blue */
+  /* Supporting: muted blue based on the logo slate */
   --color-mist-50: #f2f5fa;
   --color-mist-100: #e5ebf4;
   --color-mist-200: #ccd7e7;
-  --color-mist-300: #a7b8d2;
-  --color-mist-500: #5a78a6;
+  --color-mist-300: #a9b8d0;
+  --color-mist-500: #536d94;
 
-  /* Accent: brass, used sparingly (unread markers, highlights) */
-  --color-accent: #b08a4a;
-  --color-accent-soft: #f6efe3;
+  /* Accent: the logo cyan, used sparingly (unread markers, highlights).
+     Not used for small text: it is too light on white for that. */
+  --color-accent: #0a99d9;
+  --color-accent-soft: #e7f5fc;
 
   /* Text and surfaces */
   --color-ink: #111b2e;

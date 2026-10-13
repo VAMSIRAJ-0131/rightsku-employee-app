@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Icon } from '../components/Icons'
-import { BrandMark, Button, DevBanner, Notice, Spinner } from '../components/ui'
+import { Logo } from '../components/Logo'
+import { Button, DevBanner, Notice, Spinner } from '../components/ui'
 import { devLogin, type Session } from '../data/sampleData'
 
 const inputCls =
@@ -36,12 +37,14 @@ export default function Login({ onLogin }: { onLogin: (session: Session) => void
     <div className="flex min-h-dvh flex-col bg-canvas">
       <DevBanner />
 
-      {/* Brand panel */}
-      <div className="bg-navy-900 pt-[env(safe-area-inset-top)]">
-        <div className="mx-auto w-full max-w-md px-6 pb-16 pt-8">
-          <BrandMark tone="light" />
-          <h1 className="mt-12 text-[28px] font-semibold leading-tight tracking-tight text-white">Sign in to your workplace</h1>
-          <p className="mt-2 max-w-72 text-[14px] leading-relaxed text-mist-300">
+      {/* Brand panel: white, because the logo is designed for light surfaces.
+          The thin stripe uses the logo's own slate-to-cyan colours. */}
+      <div className="border-b border-line bg-white pt-[env(safe-area-inset-top)]">
+        <div className="h-1 bg-gradient-to-r from-brand-slate to-brand-cyan" aria-hidden="true" />
+        <div className="mx-auto w-full max-w-md px-6 pb-16 pt-9 sm:pt-12">
+          <Logo className="h-14 sm:h-[72px]" />
+          <h1 className="mt-10 text-[28px] font-semibold leading-tight tracking-tight text-navy-900">Sign in to your workplace</h1>
+          <p className="mt-2 max-w-80 text-[14px] leading-relaxed text-ink-muted">
             Timesheets, leave, payslips and documents for RIGHTSKU Solutions Private Limited.
           </p>
         </div>
