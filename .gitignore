@@ -60,3 +60,13 @@ android/app/build/
 # Logs and editor files
 *.log
 .vscode/
+# Backend build output
+backend/target/
+
+# Local environment secrets
+.env
+.env.*
+!.env.example
+
+# Local application configuration overrides
+backend/src/main/resources/application-local.properties
