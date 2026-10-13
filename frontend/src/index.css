@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+/*
+ * RIGHTSKU design tokens
+ * Use them in classes, e.g. bg-navy-900, text-ink-muted, border-line.
+ */
+@theme {
+  --font-sans: Roboto, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  /* Structure: deep navy */
+  --color-navy-950: #0a1528;
+  --color-navy-900: #0f1e38;
+  --color-navy-800: #182b4d;
+  --color-navy-700: #243b63;
+  --color-navy-600: #34507f;
+
+  /* Supporting: muted blue */
+  --color-mist-50: #f2f5fa;
+  --color-mist-100: #e5ebf4;
+  --color-mist-200: #ccd7e7;
+  --color-mist-300: #a7b8d2;
+  --color-mist-500: #5a78a6;
+
+  /* Accent: brass, used sparingly (unread markers, highlights) */
+  --color-accent: #b08a4a;
+  --color-accent-soft: #f6efe3;
+
+  /* Text and surfaces */
+  --color-ink: #111b2e;
+  --color-ink-soft: #3d4a60;
+  --color-ink-muted: #6b768a;
+  --color-line: #e3e8ef;
+  --color-line-strong: #d3dae5;
+  --color-canvas: #f4f6f9;
+
+  /* Status (muted, readable) */
+  --color-ok: #2c7356;
+  --color-ok-soft: #e8f3ee;
+  --color-warn: #9a6512;
+  --color-warn-soft: #fbf3e4;
+  --color-bad: #a93a35;
+  --color-bad-soft: #fbeceb;
+
+  --shadow-card: 0 1px 2px rgba(15, 30, 56, 0.04), 0 1px 1px rgba(15, 30, 56, 0.03);
+  --shadow-raised: 0 8px 24px -12px rgba(15, 30, 56, 0.35);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--color-canvas);
+}
+
+body {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* Clear keyboard focus for accessibility */
+:focus-visible {
+  outline: 2px solid var(--color-mist-500);
+  outline-offset: 2px;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
