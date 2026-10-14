@@ -303,7 +303,7 @@ class AuthControllerTest {
 
     /* ---------- First sign-in with a temporary password ---------- */
 
-    private static final String NEW_PASSWORD = "Chosen-New-Passw0rd!";
+    private static final String NEW_PASSWORD = "48271936"; // employees choose exactly 8 digits
     private static final String CHANGE_PASSWORD = "/api/auth/change-password";
 
     /** An employee created by HR: the password is temporary until they change it. */
@@ -321,7 +321,8 @@ class AuthControllerTest {
             String token, String current, String next) throws Exception {
         var request = post(CHANGE_PASSWORD)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"currentPassword\":\"" + current + "\",\"newPassword\":\"" + next + "\"}");
+                .content("{\"currentPassword\":\"" + current + "\",\"newPassword\":\"" + next
+                        + "\",\"confirmPassword\":\"" + next + "\"}");
         if (token != null) {
             request.header("Authorization", "Bearer " + token);
         }
@@ -358,7 +359,7 @@ class AuthControllerTest {
         assertThat(passwordEncoder.matches(NEW_PASSWORD, employee.getPasswordHash())).isTrue();
 
         // The old session has ended: the token used for the change no longer works.
-        changePassword(temporaryToken, NEW_PASSWORD, "Another-New-Passw0rd").andExpect(status().isUnauthorized());
+        changePassword(temporaryToken, NEW_PASSWORD, "90817263").andExpect(status().isUnauthorized());
         mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + temporaryToken))
                 .andExpect(status().isUnauthorized());
 
@@ -411,6 +412,53 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.fields.newPassword").exists());
         changePassword(token, PASSWORD, "").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fields.newPassword").exists());
+    }
+
+    @Test
+    void employeePasswordMustBeExactlyEightDigitsAndConfirmed() throws Exception {
+        AppUser employee = givenEmployeeWithTemporaryPassword();
+        String token = tokenFrom(login(EMPLOYEE_ID, PASSWORD).andReturn());
+
+        for (String invalid : new String[] {"1234567", "123456789", "1234567a", "1234 678", "12-45678"}) {
+            changePassword(token, PASSWORD, invalid)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.fields.newPassword").value("Password must contain exactly 8 digits."));
+        }
+
+        mockMvc.perform(post(CHANGE_PASSWORD)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"" + PASSWORD
+                                + "\",\"newPassword\":\"48271936\",\"confirmPassword\":\"48271937\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields.confirmPassword").exists());
+        mockMvc.perform(post(CHANGE_PASSWORD)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"" + PASSWORD + "\",\"newPassword\":\"48271936\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields.confirmPassword").exists());
+        assertThat(employee.isMustChangePassword()).isTrue();
+
+        // Stored only as a BCrypt hash, never as the digits themselves.
+        changePassword(token, PASSWORD, "48271936").andExpect(status().isNoContent());
+        assertThat(employee.getPasswordHash()).startsWith("$2").doesNotContain("48271936");
+        login(EMPLOYEE_ID, "48271936").andExpect(status().isOk());
+    }
+
+    @Test
+    void hrAdminSignInAndPasswordRuleAreUnchanged() throws Exception {
+        givenUser(1L, HR_EMAIL, AppUser.ROLE_HR_ADMIN, true);
+        String token = tokenFrom(login(HR_EMAIL, PASSWORD)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mustChangePassword").value(false))
+                .andReturn());
+
+        // HR Admins keep the longer rule (at least 12 characters).
+        changePassword(token, PASSWORD, "48271936").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields.newPassword").exists());
+        changePassword(token, PASSWORD, "Hr-New-Passw0rd-2026").andExpect(status().isNoContent());
+        login(HR_EMAIL, "Hr-New-Passw0rd-2026").andExpect(status().isOk());
     }
 
     @Test

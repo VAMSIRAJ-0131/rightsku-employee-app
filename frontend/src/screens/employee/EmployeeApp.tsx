@@ -16,6 +16,7 @@ import { downloadMyDocument, listMyDocuments, toEmployeeDocument } from '../../l
 import { INITIAL_EMPLOYEE_NAV, employeeNav, type EmployeeSubScreen, type EmployeeTab } from '../../lib/employeeNav'
 import { MAX_DAYS_BACK, listMyTimesheets, toTimesheet } from '../../lib/workCalendar'
 import TimesheetScreen from './TimesheetScreen'
+import ChangePasswordScreen from '../shared/ChangePasswordScreen'
 
 type Tab = EmployeeTab
 type SubScreen = EmployeeSubScreen
@@ -30,6 +31,7 @@ export default function EmployeeApp({
   token,
   onLogout,
   onSessionExpired,
+  onPasswordChanged,
 }: {
   user: Employee
   data: DashboardData
@@ -37,6 +39,8 @@ export default function EmployeeApp({
   token: string
   onLogout: () => void
   onSessionExpired: () => void
+  /** The password was changed: every session has ended, so the app returns to sign-in. */
+  onPasswordChanged: () => void
 }) {
   const { leaves, notifications, leaveBalance } = data
   const [nav, dispatch] = useReducer(employeeNav, INITIAL_EMPLOYEE_NAV)
@@ -122,7 +126,20 @@ export default function EmployeeApp({
     )
 
   let screen: ReactNode
-  if (sub === 'timesheet') {
+  if (sub === 'password') {
+    screen = (
+      <ChangePasswordScreen
+        token={token}
+        loginId={user.id}
+        role="employee"
+        mode="voluntary"
+        onBack={() => setSub(null)}
+        onChanged={onPasswordChanged}
+        onLogout={onLogout}
+        onSessionExpired={onSessionExpired}
+      />
+    )
+  } else if (sub === 'timesheet') {
     screen = (
       <TimesheetScreen
         token={token}
@@ -319,6 +336,11 @@ export default function EmployeeApp({
             <DetailRow icon="phone" label="Phone" value={user.phone} />
           </Card>
           <p className="mt-2 px-1 text-[12px] text-ink-muted">To correct any detail, contact HR.</p>
+        </Section>
+        <Section title="Security">
+          <List>
+            <ListRow icon="lock" title="Change password" subtitle="8 digits" onClick={() => setSub('password')} />
+          </List>
         </Section>
         <Section>
           <Button variant="danger" onClick={onLogout} className="w-full">

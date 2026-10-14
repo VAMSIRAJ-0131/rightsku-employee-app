@@ -83,9 +83,18 @@ HR Admins create employees through `POST /api/hr/employees`. The service:
   (`{"currentPassword": "...", "newPassword": "..."}`). Every other API answers
   403, and the app shows only the "Choose your password" screen.
 - The current password must be right (wrong guesses count towards the
-  sign-in rate limit), and the new one must follow `PasswordPolicy` and be
-  different. On success (204) the flag is cleared and the account's
-  `session_version` goes up.
+  sign-in rate limit). The new password must be typed twice
+  (`confirmPassword`), be different from the current one and follow
+  `PasswordPolicy`:
+  - **Employees:** exactly 8 digits (0-9); no letters, symbols or spaces
+    ("Password must contain exactly 8 digits.").
+  - **HR Admins:** at least 12 characters (unchanged).
+  On success (204) the flag is cleared and the account's `session_version`
+  goes up. Employees can also change their password later from Profile.
+- The temporary password HR gives a new employee still uses the 12-character
+  rule. Passwords that already exist keep working; the new rule applies the
+  next time a password is chosen.
+- All passwords are stored only as BCrypt hashes (cost 12).
 
 **Ending sessions**
 

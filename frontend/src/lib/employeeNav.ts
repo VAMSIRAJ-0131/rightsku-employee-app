@@ -2,7 +2,7 @@
 // navigation rules can be tested without a browser.
 
 export type EmployeeTab = 'home' | 'requests' | 'documents' | 'profile'
-export type EmployeeSubScreen = 'timesheet' | 'leave' | 'payslips' | 'notifications' | null
+export type EmployeeSubScreen = 'timesheet' | 'leave' | 'payslips' | 'notifications' | 'password' | null
 
 export interface EmployeeNavState {
   tab: EmployeeTab
