@@ -13,12 +13,20 @@ import {
   type EmployeeFormValues, type EmployeePage, type EmployeeRecord, type FormErrors, type StatusFilter,
 } from '../../lib/employees'
 import { formatDate } from '../../lib/format'
+import type { DocumentRecord } from '../../lib/documents'
+import type { ScheduleView } from '../../lib/workCalendar'
+import DocumentUploadForm from './DocumentUploadForm'
+import EmployeeDocumentsSection from './EmployeeDocumentsSection'
+import { ScheduleForm, ScheduleSection } from './ScheduleSection'
 
 type View =
   | { kind: 'list' }
   | { kind: 'create' }
   | { kind: 'details'; id: number; initial?: EmployeeRecord }
   | { kind: 'edit'; record: EmployeeRecord }
+  | { kind: 'schedule'; record: EmployeeRecord; current: ScheduleView }
+  | { kind: 'upload'; record: EmployeeRecord }
+  | { kind: 'replace'; record: EmployeeRecord; document: DocumentRecord }
 
 interface Props {
   token: string
@@ -31,6 +39,8 @@ interface Props {
 export default function EmployeesScreen({ token, onToast, onSessionExpired, onChanged }: Props) {
   const [view, setView] = useState<View>({ kind: 'list' })
   const [listVersion, setListVersion] = useState(0)
+  /** Bumped after a schedule or document change, so the details page reloads them. */
+  const [detailsVersion, setDetailsVersion] = useState(0)
 
   /** Shared handling for a failed request: sign out on 401, otherwise show the message. */
   const handleError = useCallback(
@@ -79,6 +89,51 @@ export default function EmployeesScreen({ token, onToast, onSessionExpired, onCh
       />
     )
   }
+  if (view.kind === 'schedule') {
+    const back = () => setView({ kind: 'details', id: view.record.id, initial: view.record })
+    return (
+      <ScheduleForm
+        token={token}
+        employeeId={view.record.id}
+        employeeName={fullName(view.record)}
+        current={view.current}
+        onCancel={back}
+        onError={handleError}
+        onSaved={() => {
+          setDetailsVersion((v) => v + 1)
+          onToast('Work schedule saved.', 'success')
+          back()
+        }}
+      />
+    )
+  }
+  if (view.kind === 'upload' || view.kind === 'replace') {
+    const back = () => setView({ kind: 'details', id: view.record.id, initial: view.record })
+    const saved = (doc: DocumentRecord) => {
+      setDetailsVersion((v) => v + 1)
+      onToast(view.kind === 'upload' ? `${doc.title} uploaded.` : `${doc.title} replaced.`, 'success')
+      back()
+    }
+    return view.kind === 'upload' ? (
+      <DocumentUploadForm
+        mode="upload"
+        token={token}
+        employee={{ id: view.record.id, name: fullName(view.record), code: view.record.employeeCode }}
+        onCancel={back}
+        onSaved={saved}
+        onError={handleError}
+      />
+    ) : (
+      <DocumentUploadForm
+        mode="replace"
+        token={token}
+        document={view.document}
+        onCancel={back}
+        onSaved={saved}
+        onError={handleError}
+      />
+    )
+  }
   if (view.kind === 'details') {
     return (
       <EmployeeDetails
@@ -86,8 +141,13 @@ export default function EmployeesScreen({ token, onToast, onSessionExpired, onCh
         token={token}
         id={view.id}
         initial={view.initial}
+        version={detailsVersion}
         onBack={() => setView({ kind: 'list' })}
         onEdit={(record) => setView({ kind: 'edit', record })}
+        onEditSchedule={(record, current) => setView({ kind: 'schedule', record, current })}
+        onUpload={(record) => setView({ kind: 'upload', record })}
+        onReplace={(record, document) => setView({ kind: 'replace', record, document })}
+        onToast={onToast}
         onError={handleError}
         onStatusChanged={(record) => {
           changed()
@@ -280,13 +340,18 @@ function ListSkeleton() {
 /* ---------------------------------------------------------------- Details */
 
 function EmployeeDetails({
-  token, id, initial, onBack, onEdit, onError, onStatusChanged,
+  token, id, initial, version, onBack, onEdit, onEditSchedule, onUpload, onReplace, onToast, onError, onStatusChanged,
 }: {
   token: string
   id: number
   initial?: EmployeeRecord
+  version: number
   onBack: () => void
   onEdit: (record: EmployeeRecord) => void
+  onEditSchedule: (record: EmployeeRecord, current: ScheduleView) => void
+  onUpload: (record: EmployeeRecord) => void
+  onReplace: (record: EmployeeRecord, document: DocumentRecord) => void
+  onToast: (text: string, tone?: 'info' | 'success' | 'error') => void
   onError: (error: ApiError) => ApiError
   onStatusChanged: (record: EmployeeRecord) => void
 }) {
@@ -377,6 +442,24 @@ function EmployeeDetails({
               <DetailRow icon="lock" label="Signs in with" value={record.employeeCode} />
             </Card>
           </Section>
+
+          <ScheduleSection
+            token={token}
+            employeeId={record.id}
+            version={version}
+            onEdit={(current) => onEditSchedule(record, current)}
+            onError={onError}
+          />
+
+          <EmployeeDocumentsSection
+            token={token}
+            employeeId={record.id}
+            version={version}
+            onUpload={() => onUpload(record)}
+            onReplace={(doc) => onReplace(record, doc)}
+            onError={onError}
+            onToast={onToast}
+          />
 
           <Section>
             {actionError && (

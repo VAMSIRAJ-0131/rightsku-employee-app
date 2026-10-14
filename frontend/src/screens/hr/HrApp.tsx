@@ -4,13 +4,15 @@ import {
   AppHeader, Avatar, BottomNav, Button, Card, EmptyState, IconTile, List, ListRow,
   Notice, Page, Section, Segmented, StatusBadge, Tag, TopBar, useToast,
 } from '../../components/ui'
-import type { DashboardData, DocType, Employee } from '../../data/types'
+import type { DashboardData, Employee } from '../../data/types'
 import { firstName, formatDate, formatShortDate, greeting, plural } from '../../lib/format'
 import { listEmployees } from '../../lib/employees'
 import EmployeesScreen from './EmployeesScreen'
+import HolidaysScreen from './HolidaysScreen'
+import HrDocumentsScreen from './HrDocumentsScreen'
 
 type Tab = 'home' | 'approvals' | 'employees' | 'documents'
-type SubScreen = 'roles' | 'reports' | 'audit' | null
+type SubScreen = 'roles' | 'reports' | 'audit' | 'holidays' | null
 type ApprovalView = 'timesheets' | 'leaves'
 
 export default function HrApp({
@@ -64,7 +66,11 @@ export default function HrApp({
   const later = (what: string, phase: string) => () => show(`${what} becomes available in ${phase}.`)
 
   let screen: ReactNode
-  if (sub === 'roles') {
+  if (sub === 'holidays') {
+    screen = (
+      <HolidaysScreen token={token} onBack={() => setSub(null)} onToast={show} onSessionExpired={onSessionExpired} />
+    )
+  } else if (sub === 'roles') {
     screen = (
       <>
         <TopBar title="Roles and access" subtitle={`${employees.length} user accounts`} onBack={() => setSub(null)} />
@@ -185,10 +191,12 @@ export default function HrApp({
     screen = (
       <>
         <AppHeader
-          right={
+          start={
             <>
+              <span className="grid h-11 w-11 place-items-center">
+                <Avatar name={user.name} size="sm" />
+              </span>
               <Tag>HR/Admin</Tag>
-              <Avatar name={user.name} size="sm" />
             </>
           }
         />
@@ -258,6 +266,7 @@ export default function HrApp({
           <List>
             <AdminRow icon="users" title="Employees" meta={`${activeCount} active`} onClick={() => goTab('employees')} />
             <AdminRow icon="upload" title="Documents" meta="Upload and assign" onClick={() => goTab('documents')} />
+            <AdminRow icon="calendar" title="Holiday calendar" meta="Company holidays" onClick={() => setSub('holidays')} />
             <AdminRow icon="shield" title="Roles and access" meta={`${employees.length} accounts`} onClick={() => setSub('roles')} />
             <AdminRow icon="chart" title="Reports" meta="Summary" onClick={() => setSub('reports')} />
             <AdminRow icon="list" title="Audit log" meta={`${auditLog.length} recent`} onClick={() => setSub('audit')} />
@@ -338,54 +347,13 @@ export default function HrApp({
       />
     )
   } else {
-    const types: { type: DocType; icon: IconName; hint: string }[] = [
-      { type: 'Offer Letter', icon: 'file', hint: 'Per employee' },
-      { type: 'Experience Letter', icon: 'file', hint: 'Issued on exit' },
-      { type: 'Payslip', icon: 'receipt', hint: 'Monthly' },
-      { type: 'Form 16', icon: 'file', hint: 'Yearly' },
-    ]
     screen = (
-      <>
-        <TopBar title="Documents" subtitle="Upload and assign to employees" />
-        <Section title="Upload">
-          <List>
-            {types.map((t) => (
-              <ListRow
-                key={t.type}
-                icon={t.icon}
-                title={t.type}
-                subtitle={`${t.hint}, ${documents.filter((d) => d.type === t.type).length} on file`}
-                right={
-                  <Button size="sm" variant="secondary" onClick={later(`Uploading a ${t.type.toLowerCase()}`, 'a later update')}>
-                    <Icon name="upload" className="h-4 w-4" /> Upload
-                  </Button>
-                }
-              />
-            ))}
-          </List>
-          <p className="mt-2 px-1 text-[12px] text-ink-muted">Every file is linked to one employee and one document type.</p>
-        </Section>
-        <Section title={`Recently uploaded (${documents.length})`}>
-          {documents.length === 0 ? (
-            <EmptyState icon="file" title="No documents uploaded yet" message="Uploaded documents will be listed here." />
-          ) : (
-          <List>
-            {documents.map((d) => (
-              <ListRow
-                key={d.id}
-                icon={d.type === 'Payslip' ? 'receipt' : 'file'}
-                title={d.title}
-                subtitle={
-                  <span className="tnum">
-                    {employeeName(d.employeeId)}, {formatShortDate(d.issuedOn)}
-                  </span>
-                }
-              />
-            ))}
-          </List>
-          )}
-        </Section>
-      </>
+      <HrDocumentsScreen
+        token={token}
+        onToast={show}
+        onSessionExpired={onSessionExpired}
+        onChanged={() => setCountsVersion((v) => v + 1)}
+      />
     )
   }
 

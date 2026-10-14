@@ -13,7 +13,11 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 /**
  * Turns common API errors into clear JSON responses.
@@ -71,6 +75,30 @@ public class ApiExceptionHandler {
             fields.putIfAbsent(fe.getField(), fe.getDefaultMessage());
         }
         return error(HttpStatus.BAD_REQUEST, "Invalid request", fields);
+    }
+
+    /** Upload bigger than spring.servlet.multipart.max-file-size / max-request-size. */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleTooLarge(MaxUploadSizeExceededException ex) {
+        String message = "The file is too large. The limit is 10 MB.";
+        return error(HttpStatus.CONTENT_TOO_LARGE, message, Map.of("file", message));
+    }
+
+    /** An upload without its "file" part. */
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingPart(MissingServletRequestPartException ex) {
+        return error(HttpStatus.BAD_REQUEST, "Invalid request", Map.of(ex.getRequestPartName(), "Choose a file to upload."));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingParameter(MissingServletRequestParameterException ex) {
+        return error(HttpStatus.BAD_REQUEST, "Invalid request", Map.of(ex.getParameterName(), "This field is required."));
+    }
+
+    /** A broken multipart upload (for example, cut off part-way). */
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<Map<String, Object>> handleMultipart(MultipartException ex) {
+        return error(HttpStatus.BAD_REQUEST, "The upload could not be read. Try again.", null);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

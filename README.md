@@ -38,6 +38,10 @@ To sign in during development:
 The app contains no sample data. Dashboard sections stay empty until their backend APIs are connected.
 
 HR Admins add and manage employees (and their sign-in) from the **Employees** tab.
+Employees created by HR must choose their own password the first time they sign in.
+
+Documents, work schedules, the holiday calendar and timesheets:
+[docs/documents-and-timesheets.md](docs/documents-and-timesheets.md).
 
 Details, Employee ID rules, employee accounts and login rate limiting:
 [docs/authentication.md](docs/authentication.md).

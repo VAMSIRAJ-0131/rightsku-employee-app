@@ -18,7 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
  *       one transaction. The login ID always equals the Employee ID.</li>
  *   <li>The Employee ID is either typed by HR (validated) or generated as the
  *       next free EMP###. It is unique regardless of case and never changes.</li>
- *   <li>Passwords are stored only as BCrypt hashes and are never returned.</li>
+ *   <li>Passwords are stored only as BCrypt hashes and are never returned.
+ *       The HR-chosen password is temporary: the employee must replace it at
+ *       first sign-in.</li>
  *   <li>Deactivating an employee also blocks their login; their open sessions
  *       stop at the next request.</li>
  *   <li>Every change is recorded in the audit log.</li>
@@ -92,6 +94,8 @@ public class EmployeeService {
 
         AppUser account = AppUser.create(
                 code, email, passwordEncoder.encode(request.initialPassword()), AppUser.ROLE_EMPLOYEE);
+        // The HR-chosen password is temporary: the employee replaces it at first sign-in.
+        account.requirePasswordChange();
         Employee employee = Employee.create(account, code, details(
                 request.firstName(), request.lastName(), request.phone(),
                 request.department(), request.jobTitle(), request.joiningDate()));

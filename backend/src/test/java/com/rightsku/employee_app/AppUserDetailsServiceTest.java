@@ -86,6 +86,52 @@ class AppUserDetailsServiceTest {
     }
 
     @Test
+    void lowerCaseOrSpacedEmployeeIdIsNormalizedBeforeLookup() {
+        AppUser employee = user(2L, "EMP001", "emp@rightsku.com", AppUser.ROLE_EMPLOYEE, true);
+        when(repository.findByLoginIdIgnoreCase("EMP001")).thenReturn(Optional.of(employee));
+
+        for (String typed : new String[] {"emp001", "  Emp001  ", "\tEMP001\n"}) {
+            assertThat(service.loadUserByUsername(typed).getUsername()).as(typed).isEqualTo("2");
+        }
+        verify(repository, never()).findByEmailIgnoreCase(anyString());
+    }
+
+    @Test
+    void valueThatCannotBeAnEmployeeIdIsRefusedWithoutLookup() {
+        for (String bad : new String[] {"EMP 001", "-EMP1", "E".repeat(31), "EMP#1", "EMP001;--"}) {
+            assertThatThrownBy(() -> service.loadUserByUsername(bad))
+                    .as(bad)
+                    .isInstanceOf(UsernameNotFoundException.class);
+        }
+        verify(repository, never()).findByLoginIdIgnoreCase(anyString());
+        verify(repository, never()).findByEmailIgnoreCase(anyString());
+    }
+
+    @Test
+    void hrEmailIsTrimmedAndLowerCasedBeforeLookup() {
+        AppUser hr = user(1L, null, "hr@rightsku.com", AppUser.ROLE_HR_ADMIN, true);
+        when(repository.findByEmailIgnoreCase("hr@rightsku.com")).thenReturn(Optional.of(hr));
+
+        UserDetails details = service.loadUserByUsername("  HR@RightSKU.com ");
+
+        assertThat(details.getUsername()).isEqualTo("1");
+        assertThat(details.getAuthorities()).extracting(Object::toString).containsExactly("ROLE_HR_ADMIN");
+        verify(repository, never()).findByLoginIdIgnoreCase(anyString());
+    }
+
+    @Test
+    void hrAdminIsNotFoundByAnIdWithoutAt() {
+        // HR Admins have no Employee ID, so a non-email value only searches Employee IDs.
+        AppUser hr = user(1L, null, "hr@rightsku.com", AppUser.ROLE_HR_ADMIN, true);
+        when(repository.findByEmailIgnoreCase("hr@rightsku.com")).thenReturn(Optional.of(hr));
+
+        assertThatThrownBy(() -> service.loadUserByUsername("hr"))
+                .isInstanceOf(UsernameNotFoundException.class);
+        verify(repository).findByLoginIdIgnoreCase("HR");
+        verify(repository, never()).findByEmailIgnoreCase(anyString());
+    }
+
+    @Test
     void employeeIdIsStoredTrimmedAndUpperCase() {
         AppUser employee = AppUser.create("  emp001 ", "emp@rightsku.com", "hash", AppUser.ROLE_EMPLOYEE);
         assertThat(employee.getLoginId()).isEqualTo("EMP001");

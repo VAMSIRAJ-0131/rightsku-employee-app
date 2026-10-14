@@ -32,6 +32,14 @@ public class JwtService {
 
     public static final String ISSUER = "rightsku-employee-app";
 
+    /** Session version of the account when the token was issued (see AppUser). */
+    public static final String CLAIM_SESSION_VERSION = "sv";
+    /**
+     * True when the account still has a temporary password. Such a token can
+     * only be used to change the password (see SecurityConfig).
+     */
+    public static final String CLAIM_PASSWORD_CHANGE_REQUIRED = "pwc";
+
     /** HS256 needs a key of at least 256 bits (32 bytes). */
     static final int MIN_SECRET_BYTES = 32;
 
@@ -80,7 +88,9 @@ public class JwtService {
                 .expiresAt(now.plus(expiration))
                 .subject(String.valueOf(user.getId()))
                 .claim("userId", user.getId())
-                .claim("role", user.getRole());
+                .claim("role", user.getRole())
+                .claim(CLAIM_SESSION_VERSION, user.getSessionVersion())
+                .claim(CLAIM_PASSWORD_CHANGE_REQUIRED, user.isMustChangePassword());
         if (user.getLoginId() != null) {
             claims.claim("loginId", user.getLoginId());
         }

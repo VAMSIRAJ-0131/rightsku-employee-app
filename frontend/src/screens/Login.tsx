@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Icon } from '../components/Icons'
 import { BrandMark, Button, Notice, Spinner } from '../components/ui'
-import { login, loginErrorMessage, type AuthSession } from '../lib/auth'
+import { checkLoginInput, login, loginErrorMessage, type AuthSession } from '../lib/auth'
 
 const inputCls =
   'h-12 w-full rounded-lg border bg-white px-4 text-[15px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-mist-500 focus:ring-4 focus:ring-mist-100'
@@ -25,19 +25,12 @@ export default function Login({
     e.preventDefault()
     if (loading) return
     setError('')
-    const id = username.trim()
-    if (!id || !password) {
-      setError('Enter your Employee ID and password to sign in.')
+    const checked = checkLoginInput(username, password)
+    if (!checked.ok) {
+      setError(checked.message)
       return
     }
-    if (id.includes('@') ? !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id) : !/^[A-Za-z0-9][A-Za-z0-9._-]{0,29}$/.test(id)) {
-      setError(
-        id.includes('@')
-          ? 'Enter a valid work email, like name@rightsku.com.'
-          : 'Enter a valid Employee ID, like EMP001.',
-      )
-      return
-    }
+    const id = checked.username
 
     setLoading(true)
     // Real sign-in: POST /api/auth/login. No demo fallback.

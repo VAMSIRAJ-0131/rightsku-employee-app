@@ -87,6 +87,9 @@ class EmployeeServiceTest {
         assertThat(account.isActive()).isTrue();
         assertThat(account.getPasswordHash()).startsWith("$2").isNotEqualTo(PASSWORD);
         assertThat(encoder.matches(PASSWORD, account.getPasswordHash())).isTrue();
+        assertThat(account.isMustChangePassword())
+                .as("HR-chosen password is temporary: the employee must change it at first sign-in")
+                .isTrue();
 
         Employee employee = savedEmployee.getValue();
         assertThat(employee.getEmployeeCode()).isEqualTo(account.getLoginId());

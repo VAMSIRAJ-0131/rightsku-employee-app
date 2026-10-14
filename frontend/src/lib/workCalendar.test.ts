@@ -1,0 +1,141 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  buildMonthGrid, monthRange, shiftMonth, submitTimesheet, toTimesheet, validateHoliday, validateSchedule,
+  validateTimesheet, type CalendarDay, type DayCell, type Weekday,
+} from './workCalendar'
+
+const TODAY = '2026-10-14' // Wednesday
+
+/** A month of server calendar days: Saturday and Sunday off unless told otherwise. */
+function serverMonth(
+  month: string,
+  opts: { offs?: number[]; holidays?: Record<string, string>; changeFrom?: string; offsAfter?: number[] } = {},
+): CalendarDay[] {
+  const { from, to } = monthRange(month)
+  const days: CalendarDay[] = []
+  for (let d = new Date(`${from}T00:00:00`); ; d.setDate(d.getDate() + 1)) {
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    if (iso > to) break
+    const offs = opts.changeFrom && iso >= opts.changeFrom ? (opts.offsAfter ?? []) : (opts.offs ?? [6, 0])
+    const weeklyOff = offs.includes(d.getDay())
+    const holidayName = opts.holidays?.[iso] ?? null
+    days.push({ date: iso, kind: holidayName ? 'HOLIDAY' : weeklyOff ? 'WEEKLY_OFF' : 'WORKING', weeklyOff, holidayName, hoursPerDay: 8 })
+  }
+  return days
+}
+
+function cell(grid: DayCell[][], iso: string): DayCell {
+  const found = grid.flat().find((c) => c.iso === iso)
+  if (!found) throw new Error(`no cell ${iso}`)
+  return found
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('timesheet calendar', () => {
+  const october = serverMonth('2026-10', { holidays: { '2026-10-02': 'Gandhi Jayanti', '2026-10-03': 'Weekend holiday' } })
+  const grid = buildMonthGrid('2026-10', october, TODAY, new Set(['2026-10-12']))
+
+  it('lays out the month in Monday-first weeks', () => {
+    expect(grid).toHaveLength(5)
+    expect(grid[0][0].iso).toBe('2026-09-28')
+    expect(grid[0][0].state).toBe('outside')
+    expect(grid.every((w) => w.length === 7)).toBe(true)
+  })
+
+  it('disables weekly offs, holidays, future dates and submitted days', () => {
+    expect(cell(grid, '2026-10-13')).toMatchObject({ state: 'available', disabled: false })
+    expect(cell(grid, '2026-10-10')).toMatchObject({ state: 'weekly-off', disabled: true })
+    expect(cell(grid, '2026-10-02')).toMatchObject({ state: 'holiday', disabled: true, holidayName: 'Gandhi Jayanti' })
+    expect(cell(grid, '2026-10-15')).toMatchObject({ state: 'future', disabled: true })
+    expect(cell(grid, '2026-10-12')).toMatchObject({ state: 'submitted', disabled: true })
+    expect(cell(grid, '2026-10-14')).toMatchObject({ state: 'available', isToday: true })
+  })
+
+  it('shows a holiday on a weekly off as the holiday', () => {
+    expect(cell(grid, '2026-10-03')).toMatchObject({ state: 'holiday', disabled: true, holidayName: 'Weekend holiday' })
+    expect(cell(grid, '2026-10-03').label).toContain('Weekend holiday')
+  })
+
+  it('follows each employee’s own schedule from the server', () => {
+    // Friday and Saturday off: Sunday becomes a working day, Friday is off.
+    const fridayOff = buildMonthGrid('2026-10', serverMonth('2026-10', { offs: [5, 6] }), TODAY, new Set())
+    expect(cell(fridayOff, '2026-10-11').state).toBe('available')
+    expect(cell(fridayOff, '2026-10-09').state).toBe('weekly-off')
+  })
+
+  it('reflects an HR schedule change from its start date', () => {
+    // From 5 Oct only Sunday is off: 3 Oct (Saturday) is still off, 10 Oct is a working day.
+    const changed = buildMonthGrid('2026-10', serverMonth('2026-10', { changeFrom: '2026-10-05', offsAfter: [0] }), TODAY, new Set())
+    expect(cell(changed, '2026-10-03').state).toBe('weekly-off')
+    expect(cell(changed, '2026-10-10').state).toBe('available')
+    expect(cell(changed, '2026-10-11').state).toBe('weekly-off')
+  })
+
+  it('disables dates more than 60 days back or missing from the server calendar', () => {
+    const august = buildMonthGrid('2026-08', serverMonth('2026-08'), TODAY, new Set())
+    expect(cell(august, '2026-08-14').state).toBe('too-old')
+    expect(cell(august, '2026-08-17').state).toBe('available')
+    const notLoaded = buildMonthGrid('2026-10', [], TODAY, new Set())
+    expect(cell(notLoaded, '2026-10-13').disabled).toBe(true)
+  })
+
+  it('moves between months', () => {
+    expect(shiftMonth('2026-01', -1)).toBe('2025-12')
+    expect(shiftMonth('2026-12', 1)).toBe('2027-01')
+    expect(monthRange('2028-02')).toEqual({ from: '2028-02-01', to: '2028-02-29' })
+  })
+})
+
+describe('timesheet form', () => {
+  const pickable = new Set(['2026-10-13'])
+
+  it('accepts a working day with quarter hours', () => {
+    expect(validateTimesheet({ date: '2026-10-13', hours: '7.5', description: 'Payslip screen' }, pickable)).toEqual({})
+  })
+
+  it('refuses a date that is not pickable and bad hours', () => {
+    const errors = validateTimesheet({ date: '2026-10-10', hours: '7.1', description: '' }, pickable)
+    expect(Object.keys(errors).sort()).toEqual(['date', 'description', 'hours'])
+    for (const bad of ['0', '-2', '25', 'abc', '']) {
+      expect(validateTimesheet({ date: '2026-10-13', hours: bad, description: 'x' }, pickable).hours, bad).toBeDefined()
+    }
+  })
+
+  it('sends the entry as JSON and maps the server record', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      id: 9, date: '2026-10-13', hours: 7.5, description: 'Payslip screen', status: 'PENDING', submittedAt: '2026-10-13T10:00:00Z',
+    }), { status: 201, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await submitTimesheet('test-only-token', { date: '2026-10-13', hours: '7.5', description: ' Payslip screen ' })
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/employee/timesheets')
+    expect(JSON.parse(init.body as string)).toEqual({ date: '2026-10-13', hours: 7.5, description: 'Payslip screen' })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(toTimesheet(result.data, 'EMP010')).toMatchObject({ id: '9', status: 'Pending', hours: 7.5 })
+  })
+})
+
+describe('HR schedule and holiday forms', () => {
+  it('needs at least one working day, quarter hours and a start date', () => {
+    const all: Weekday[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']
+    expect(validateSchedule({ weeklyOffs: ['SUNDAY'], hoursPerDay: '8', effectiveFrom: '2026-10-20' }, TODAY)).toEqual({})
+    expect(Object.keys(validateSchedule({ weeklyOffs: all, hoursPerDay: '7.2', effectiveFrom: '' }, TODAY)).sort())
+      .toEqual(['effectiveFrom', 'hoursPerDay', 'weeklyOffs'])
+    expect(validateSchedule({ weeklyOffs: [], hoursPerDay: '9.75', effectiveFrom: TODAY }, TODAY)).toEqual({})
+  })
+
+  it('refuses a start date in the past, like the server', () => {
+    expect(validateSchedule({ weeklyOffs: ['SUNDAY'], hoursPerDay: '8', effectiveFrom: '2026-10-13' }, TODAY).effectiveFrom)
+      .toBeDefined()
+  })
+
+  it('needs a holiday date and name', () => {
+    expect(validateHoliday({ date: '2026-10-02', name: 'Gandhi Jayanti' })).toEqual({})
+    expect(Object.keys(validateHoliday({ date: '', name: '  ' })).sort()).toEqual(['date', 'name'])
+  })
+})

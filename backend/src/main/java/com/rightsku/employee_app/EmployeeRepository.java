@@ -3,6 +3,7 @@ package com.rightsku.employee_app;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Predicate;
@@ -15,6 +16,9 @@ import org.springframework.data.jpa.repository.Query;
 public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSpecificationExecutor<Employee> {
 
     boolean existsByEmployeeCodeIgnoreCase(String employeeCode);
+
+    /** The employee record of a signed-in employee (token subject = app_users.id). */
+    Optional<Employee> findByUser_Id(Long userId);
 
     long countByEmploymentStatus(String employmentStatus);
 

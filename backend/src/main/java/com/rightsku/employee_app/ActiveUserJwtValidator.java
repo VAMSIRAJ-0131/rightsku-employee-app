@@ -10,9 +10,12 @@ import org.springframework.security.oauth2.jwt.Jwt;
 
 /**
  * Rejects a token when its user no longer exists, has been deactivated,
- * or now has a different role than the one written in the token.
- * Without this, a deactivated user could keep using an old token
- * until it expires.
+ * now has a different role than the one written in the token, or has
+ * changed their password since the token was issued (session version).
+ * It also rejects a token whose "password change required" flag no longer
+ * matches the account, so a temporary-password token stops working once the
+ * password is changed. Without this, an old token could keep working until
+ * it expires.
  */
 public class ActiveUserJwtValidator implements OAuth2TokenValidator<Jwt> {
 
@@ -38,10 +41,27 @@ public class ActiveUserJwtValidator implements OAuth2TokenValidator<Jwt> {
         Optional<AppUser> user = appUserRepository.findById(userId);
         boolean valid = user.isPresent()
                 && user.get().isActive()
-                && user.get().getRole().equals(jwt.getClaimAsString("role"));
+                && user.get().getRole().equals(jwt.getClaimAsString("role"))
+                && user.get().getSessionVersion() == sessionVersion(jwt)
+                && user.get().isMustChangePassword() == passwordChangeRequired(jwt);
 
         return valid
                 ? OAuth2TokenValidatorResult.success()
                 : OAuth2TokenValidatorResult.failure(INVALID);
+    }
+
+    /** Session version in the token; tokens issued before V4 have none, which counts as 0. */
+    static int sessionVersion(Jwt jwt) {
+        Object value = jwt.getClaim(JwtService.CLAIM_SESSION_VERSION);
+        if (value == null) {
+            return 0;
+        }
+        return value instanceof Number number ? number.intValue() : -1;
+    }
+
+    /** True only when the token says the password must be changed first. */
+    static boolean passwordChangeRequired(Jwt jwt) {
+        Object value = jwt.getClaim(JwtService.CLAIM_PASSWORD_CHANGE_REQUIRED);
+        return Boolean.TRUE.equals(value);
     }
 }

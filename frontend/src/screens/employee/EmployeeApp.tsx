@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useReducer, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icons'
 import {
-  AppHeader, Avatar, BottomNav, Button, Card, CardButton, DetailRow, EmptyState,
+  AppHeader, Avatar, AvatarButton, BottomNav, Button, Card, CardButton, DetailRow, EmptyState,
   FilterChips, IconButton, IconTile, List, ListRow, Notice, Page, ProgressBar, Section,
-  Segmented, StatusBadge, Tag, TopBar, useToast,
+  Segmented, Spinner, StatusBadge, Tag, TopBar, useToast,
 } from '../../components/ui'
 import type {
   DashboardData, DocType, Employee, EmployeeDocument, LeaveBalance, LeaveRequest, Timesheet,
@@ -11,42 +11,87 @@ import type {
 import {
   currentWorkWeek, firstName, formatDate, formatShortDate, greeting, monthLabel, plural, toIsoDate,
 } from '../../lib/format'
+import { saveFile, type ApiError } from '../../lib/api'
+import { downloadMyDocument, listMyDocuments, toEmployeeDocument } from '../../lib/documents'
+import { INITIAL_EMPLOYEE_NAV, employeeNav, type EmployeeSubScreen, type EmployeeTab } from '../../lib/employeeNav'
+import { MAX_DAYS_BACK, listMyTimesheets, toTimesheet } from '../../lib/workCalendar'
+import TimesheetScreen from './TimesheetScreen'
 
-type Tab = 'home' | 'requests' | 'documents' | 'profile'
-type SubScreen = 'timesheet' | 'leave' | 'payslips' | 'notifications' | null
+type Tab = EmployeeTab
+type SubScreen = EmployeeSubScreen
 type DocFilter = 'All' | DocType
 
-const DOWNLOAD_MSG = 'Downloads open once the secure backend is connected in Phase 4.'
+/** Loaded from the server: loading, failed (with a message) or ready. */
+type Loaded<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; items: T[] }
 
 export default function EmployeeApp({
   user,
   data,
+  token,
   onLogout,
+  onSessionExpired,
 }: {
   user: Employee
   data: DashboardData
+  /** JWT for API calls. Memory only. */
+  token: string
   onLogout: () => void
+  onSessionExpired: () => void
 }) {
-  const { timesheets, leaves, documents, notifications, leaveBalance } = data
-  const [tab, setTab] = useState<Tab>('home')
-  const [sub, setSub] = useState<SubScreen>(null)
+  const { leaves, notifications, leaveBalance } = data
+  const [nav, dispatch] = useReducer(employeeNav, INITIAL_EMPLOYEE_NAV)
+  const { tab, sub } = nav
   const [requestsView, setRequestsView] = useState<'timesheets' | 'leaves'>('timesheets')
   const [docFilter, setDocFilter] = useState<DocFilter>('All')
   const { show, toast } = useToast()
+  const [timesheetState, setTimesheetState] = useState<Loaded<Timesheet>>({ status: 'loading' })
+  const [docState, setDocState] = useState<Loaded<EmployeeDocument>>({ status: 'loading' })
+  const [version, setVersion] = useState(0)
 
-  // Employees only ever see their own records.
-  const myTimesheets = timesheets.filter((t) => t.employeeId === user.id)
+  /** Shared handling for a failed request: sign out on 401, otherwise keep the message. */
+  const handleError = useCallback(
+    (error: ApiError) => {
+      if (error.kind === 'unauthorized') onSessionExpired()
+      return error
+    },
+    [onSessionExpired],
+  )
+
+  // The employee's own timesheets (the server only ever returns theirs).
+  useEffect(() => {
+    const controller = new AbortController()
+    const today = new Date()
+    const from = new Date(today)
+    from.setDate(today.getDate() - MAX_DAYS_BACK)
+    listMyTimesheets(token, toIsoDate(from), toIsoDate(today), controller.signal).then((result) => {
+      if (controller.signal.aborted) return
+      if (result.ok) setTimesheetState({ status: 'ready', items: result.data.map((r) => toTimesheet(r, user.id)) })
+      else setTimesheetState({ status: 'error', message: handleError(result.error).message })
+    })
+    return () => controller.abort()
+  }, [token, user.id, version, handleError])
+
+  // The employee's own documents.
+  useEffect(() => {
+    const controller = new AbortController()
+    listMyDocuments(token, controller.signal).then((result) => {
+      if (controller.signal.aborted) return
+      if (result.ok) setDocState({ status: 'ready', items: result.data.map((r) => toEmployeeDocument(r, user.id)) })
+      else setDocState({ status: 'error', message: handleError(result.error).message })
+    })
+    return () => controller.abort()
+  }, [token, user.id, version, handleError])
+
+  const myTimesheets = timesheetState.status === 'ready' ? timesheetState.items : []
   const myLeaves = leaves.filter((l) => l.employeeId === user.id)
-  const myDocs = documents.filter((d) => d.employeeId === user.id)
+  const myDocs = docState.status === 'ready' ? docState.items : []
   const unread = notifications.filter((n) => !n.read).length
   const pendingTs = myTimesheets.filter((t) => t.status === 'Pending')
   const pendingLeaves = myLeaves.filter((l) => l.status === 'Pending')
   const payslips = myDocs.filter((d) => d.type === 'Payslip')
 
-  function goTab(next: Tab) {
-    setSub(null)
-    setTab(next)
-  }
+  const goTab = (next: Tab) => dispatch({ type: 'tab', tab: next })
+  const setSub = (next: SubScreen) => (next ? dispatch({ type: 'open', sub: next }) : dispatch({ type: 'back' }))
   function openDocs(filter: DocFilter) {
     setDocFilter(filter)
     goTab('documents')
@@ -55,30 +100,43 @@ export default function EmployeeApp({
     setRequestsView(view)
     goTab('requests')
   }
-  const download = () => show(DOWNLOAD_MSG)
+
+  async function download(doc: EmployeeDocument) {
+    show('Downloading…')
+    const result = await downloadMyDocument(token, doc.id, `${doc.title}.pdf`)
+    if (result.ok) {
+      saveFile(result.data)
+      show(`${doc.title} downloaded.`, 'success')
+    } else {
+      show(handleError(result.error).message, 'error')
+    }
+  }
+
+  const timesheetHistory =
+    timesheetState.status === 'error' ? (
+      <LoadError message={timesheetState.message} onRetry={() => setVersion((v) => v + 1)} />
+    ) : timesheetState.status === 'loading' ? (
+      <LoadingCard label="Loading timesheets" />
+    ) : (
+      <TimesheetList items={myTimesheets} />
+    )
 
   let screen: ReactNode
   if (sub === 'timesheet') {
-    const month = toIsoDate(new Date()).slice(0, 7)
-    const monthEntries = myTimesheets.filter((t) => t.date.startsWith(month))
-    const approvedHrs = monthEntries.filter((t) => t.status === 'Approved').reduce((s, t) => s + t.hours, 0)
-    const pendingHrs = monthEntries.filter((t) => t.status === 'Pending').reduce((s, t) => s + t.hours, 0)
     screen = (
-      <>
-        <TopBar title="Timesheet" subtitle="Log daily or weekly hours" onBack={() => setSub(null)} />
-        <Section>
-          <Card className="grid grid-cols-2 divide-x divide-line">
-            <SummaryFigure label="Approved this month" value={`${approvedHrs} h`} />
-            <SummaryFigure label="Awaiting approval" value={`${pendingHrs} h`} />
-          </Card>
-        </Section>
-        <Section title="New entry">
-          <Notice>The entry form for date, hours and description arrives in Phase 2. Your history below is up to date.</Notice>
-        </Section>
-        <Section title="History">
-          <TimesheetList items={myTimesheets} />
-        </Section>
-      </>
+      <TimesheetScreen
+        token={token}
+        timesheets={myTimesheets}
+        history={timesheetHistory}
+        onBack={() => setSub(null)}
+        onError={handleError}
+        onSubmitted={(record) => {
+          setTimesheetState((s) =>
+            s.status === 'ready' ? { status: 'ready', items: [toTimesheet(record, user.id), ...s.items] } : s,
+          )
+          show('Timesheet sent for approval.', 'success')
+        }}
+      />
     )
   } else if (sub === 'leave') {
     screen = (
@@ -126,7 +184,7 @@ export default function EmployeeApp({
                     <p className="text-[16px] font-semibold text-ink">{latest.title.replace('Payslip - ', '')}</p>
                     <p className="text-[13px] text-ink-muted">Issued {formatDate(latest.issuedOn)}</p>
                   </div>
-                  <Button size="sm" variant="secondary" onClick={download}>
+                  <Button size="sm" variant="secondary" onClick={() => download(latest)}>
                     <Icon name="download" className="h-4 w-4" /> Download
                   </Button>
                 </div>
@@ -185,6 +243,7 @@ export default function EmployeeApp({
         onOpen={setSub}
         onOpenDocs={openDocs}
         onOpenRequests={openRequests}
+        onOpenProfile={() => dispatch({ type: 'header-profile' })}
         onDownload={download}
       />
     )
@@ -204,7 +263,7 @@ export default function EmployeeApp({
           <p className="mt-2 px-1 text-[12px] text-ink-muted">Counts show requests waiting for HR.</p>
         </Section>
         <Section title={requestsView === 'timesheets' ? 'Timesheets' : 'Leave applications'}>
-          {requestsView === 'timesheets' ? <TimesheetList items={myTimesheets} /> : <LeaveList items={myLeaves} />}
+          {requestsView === 'timesheets' ? timesheetHistory : <LeaveList items={myLeaves} />}
         </Section>
       </>
     )
@@ -218,7 +277,11 @@ export default function EmployeeApp({
           <FilterChips options={filters} value={docFilter} onChange={setDocFilter} />
         </Section>
         <Section title={docFilter === 'All' ? `All documents (${shown.length})` : docFilter}>
-          {shown.length === 0 ? (
+          {docState.status === 'error' ? (
+            <LoadError message={docState.message} onRetry={() => setVersion((v) => v + 1)} />
+          ) : docState.status === 'loading' ? (
+            <LoadingCard label="Loading documents" />
+          ) : shown.length === 0 ? (
             <EmptyState icon="file" title="Not issued yet" message="HR uploads this document when it is ready. You’ll get a notification." />
           ) : (
             <DocList items={shown} onDownload={download} />
@@ -288,7 +351,7 @@ export default function EmployeeApp({
 
 function HomeScreen({
   user, unread, myTimesheets, myDocs, pendingTsCount, pendingLeaveCount, payslips, leaveBalance,
-  onOpen, onOpenDocs, onOpenRequests, onDownload,
+  onOpen, onOpenDocs, onOpenRequests, onOpenProfile, onDownload,
 }: {
   user: Employee
   unread: number
@@ -301,7 +364,9 @@ function HomeScreen({
   onOpen: (s: SubScreen) => void
   onOpenDocs: (f: DocFilter) => void
   onOpenRequests: (v: 'timesheets' | 'leaves') => void
-  onDownload: () => void
+  /** The header shortcut: opens the same Profile screen as the footer tab. */
+  onOpenProfile: () => void
+  onDownload: (doc: EmployeeDocument) => void
 }) {
   const now = new Date()
   const month = toIsoDate(now).slice(0, 7)
@@ -332,10 +397,10 @@ function HomeScreen({
   return (
     <>
       <AppHeader
-        right={
+        start={
           <>
+            <AvatarButton name={user.name} label="Open your profile" onClick={onOpenProfile} />
             <IconButton icon="bell" label={`Notifications, ${unread} unread`} dot={unread > 0} onClick={() => onOpen('notifications')} />
-            <Avatar name={user.name} size="sm" />
           </>
         }
       />
@@ -455,7 +520,7 @@ function HomeScreen({
                 right={
                   doc ? (
                     <button
-                      onClick={onDownload}
+                      onClick={() => onDownload(doc)}
                       aria-label={`Download ${label}`}
                       className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-navy-700 hover:bg-mist-50"
                     >
@@ -494,12 +559,22 @@ function HomeScreen({
 
 /* ---------- Small pieces used above ---------- */
 
-function SummaryFigure({ label, value }: { label: string; value: string }) {
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="px-4 py-4">
-      <p className="tnum text-[22px] font-semibold tracking-tight text-ink">{value}</p>
-      <p className="text-[12px] text-ink-muted">{label}</p>
+    <div className="space-y-3" role="alert">
+      <Notice tone="bad">{message}</Notice>
+      <Button variant="secondary" onClick={onRetry}>
+        Try again
+      </Button>
     </div>
+  )
+}
+
+function LoadingCard({ label }: { label: string }) {
+  return (
+    <Card className="flex items-center justify-center gap-2 px-4 py-8 text-[14px] text-ink-muted">
+      <Spinner /> {label}
+    </Card>
   )
 }
 
@@ -537,7 +612,7 @@ function TimesheetList({ items }: { items: Timesheet[] }) {
           <p className="mt-1 truncate text-[13px] text-ink-muted">{t.description}</p>
           {t.status === 'Rejected' && t.remark && (
             <div className="mt-2.5 rounded-md border-l-2 border-bad bg-bad-soft px-3 py-2 text-[12px] leading-relaxed text-bad">
-              <span className="font-semibold">HR note:</span> {t.remark}. Resubmitting becomes available in Phase 2.
+              <span className="font-semibold">HR note:</span> {t.remark}
             </div>
           )}
         </div>
@@ -575,7 +650,7 @@ function LeaveList({ items }: { items: LeaveRequest[] }) {
   )
 }
 
-function DocList({ items, onDownload }: { items: EmployeeDocument[]; onDownload: () => void }) {
+function DocList({ items, onDownload }: { items: EmployeeDocument[]; onDownload: (doc: EmployeeDocument) => void }) {
   return (
     <List>
       {items.map((d) => (
@@ -586,7 +661,7 @@ function DocList({ items, onDownload }: { items: EmployeeDocument[]; onDownload:
           subtitle={<span className="tnum">Issued {formatDate(d.issuedOn)}</span>}
           right={
             <button
-              onClick={onDownload}
+              onClick={() => onDownload(d)}
               aria-label={`Download ${d.title}`}
               className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-navy-700 hover:bg-mist-50"
             >

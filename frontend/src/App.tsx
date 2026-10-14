@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import Login from './screens/Login'
 import EmployeeApp from './screens/employee/EmployeeApp'
 import HrApp from './screens/hr/HrApp'
+import ChangePasswordScreen from './screens/shared/ChangePasswordScreen'
 import type { AuthSession } from './lib/auth'
 import { EMPTY_DASHBOARD_DATA } from './data/types'
 
@@ -31,6 +32,23 @@ export default function App() {
 
   const logout = () => setSession(null)
 
+  // Temporary password from HR: the only thing this session may do is set a
+  // new password. Afterwards the session has ended and the user signs in again.
+  if (session.mustChangePassword) {
+    return (
+      <ChangePasswordScreen
+        token={session.token}
+        loginId={session.loginId}
+        onChanged={() => {
+          setSession(null)
+          setSignInNotice('Password changed. Sign in with your new password.')
+        }}
+        onLogout={logout}
+        onSessionExpired={sessionExpired}
+      />
+    )
+  }
+
   // Real sessions never see sample data. Until each module's backend API
   // exists, the dashboards receive empty data and show empty states.
   const data = EMPTY_DASHBOARD_DATA
@@ -45,6 +63,12 @@ export default function App() {
       onSessionExpired={sessionExpired}
     />
   ) : (
-    <EmployeeApp user={session.profile} data={data} onLogout={logout} />
+    <EmployeeApp
+      user={session.profile}
+      data={data}
+      token={session.token}
+      onLogout={logout}
+      onSessionExpired={sessionExpired}
+    />
   )
 }

@@ -40,6 +40,17 @@ public class AppUser {
     @Column(nullable = false)
     private boolean active = true;
 
+    /** True while the account still uses a temporary password set by HR (V4). */
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword;
+
+    /** Increases on every password change; tokens with an older value stop working (V4). */
+    @Column(name = "session_version", nullable = false)
+    private int sessionVersion;
+
+    @Column(name = "password_changed_at")
+    private Instant passwordChangedAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -97,6 +108,27 @@ public class AppUser {
         return id.toUpperCase(Locale.ROOT);
     }
 
+    /**
+     * Marks the password as temporary: the account holder must choose a new
+     * one at the next sign-in before using the app.
+     */
+    public void requirePasswordChange() {
+        this.mustChangePassword = true;
+    }
+
+    /**
+     * Stores a new password chosen by the account holder. The caller has
+     * already checked the current password and the password rules; the value
+     * must already be hashed (BCrypt). All existing sessions end, because
+     * their tokens carry the previous session version.
+     */
+    public void changePassword(String newPasswordHash, Instant changedAt) {
+        this.passwordHash = newPasswordHash;
+        this.mustChangePassword = false;
+        this.sessionVersion++;
+        this.passwordChangedAt = changedAt;
+    }
+
     /** Changes the login email. The caller checks the format and that it is not already used. */
     public void changeEmail(String newEmail) {
         this.email = newEmail;
@@ -146,6 +178,18 @@ public class AppUser {
 
     public boolean isActive() {
         return active;
+    }
+
+    public boolean isMustChangePassword() {
+        return mustChangePassword;
+    }
+
+    public int getSessionVersion() {
+        return sessionVersion;
+    }
+
+    public Instant getPasswordChangedAt() {
+        return passwordChangedAt;
     }
 
     public Instant getCreatedAt() {

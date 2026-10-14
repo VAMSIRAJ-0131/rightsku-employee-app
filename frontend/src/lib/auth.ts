@@ -20,6 +20,31 @@ export const API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(
 
 const LOGIN_TIMEOUT_MS = 15_000
 
+/** Same Employee ID rule as the backend (AppUser.normalizeLoginId) and the database. */
+const EMPLOYEE_ID_FORMAT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,29}$/
+const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * Checks what was typed in the sign-in field before calling the server.
+ * Returns the trimmed value to send, or an error message to show.
+ * Upper/lower case does not matter: the server treats emp001 as EMP001.
+ */
+export function checkLoginInput(
+  username: string,
+  password: string,
+): { ok: true; username: string } | { ok: false; message: string } {
+  const value = username.trim()
+  if (!value || !password) return { ok: false, message: 'Enter your Employee ID and password to sign in.' }
+  if (value.includes('@')) {
+    return EMAIL_FORMAT.test(value)
+      ? { ok: true, username: value }
+      : { ok: false, message: 'Enter a valid work email, like name@rightsku.com.' }
+  }
+  return EMPLOYEE_ID_FORMAT.test(value)
+    ? { ok: true, username: value }
+    : { ok: false, message: 'Enter a valid Employee ID, like EMP001.' }
+}
+
 export interface AuthSession {
   /** JWT for later API calls. Memory only; never displayed or stored. */
   token: string
@@ -28,6 +53,12 @@ export interface AuthSession {
   loginId: string | null
   email: string
   role: Role
+  /**
+   * True while the account still has the temporary password HR gave out.
+   * The app then shows only the "choose a new password" screen; the server
+   * also refuses every other request made with this token.
+   */
+  mustChangePassword: boolean
   /** What the dashboards show. Only fields the backend provides are filled. */
   profile: Employee
 }
@@ -78,13 +109,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Checks the shape of a successful login response and turns it into a session. */
 export function parseLoginResponse(data: unknown): AuthSession | null {
   if (!isRecord(data)) return null
-  const { token, email, userId, role, loginId } = data
+  const { token, email, userId, role, loginId, mustChangePassword } = data
   const mappedRole = mapBackendRole(role)
   if (typeof token !== 'string' || token.length === 0) return null
   if (typeof email !== 'string' || email.length === 0) return null
   if (typeof userId !== 'number' || !Number.isFinite(userId)) return null
   if (!mappedRole) return null
   if (loginId !== undefined && loginId !== null && typeof loginId !== 'string') return null
+  if (mustChangePassword !== undefined && typeof mustChangePassword !== 'boolean') return null
   const id = typeof loginId === 'string' && loginId.length > 0 ? loginId : null
   // Employees always have an Employee ID; refuse a response that says otherwise.
   if (mappedRole === 'employee' && !id) return null
@@ -94,6 +126,7 @@ export function parseLoginResponse(data: unknown): AuthSession | null {
     loginId: id,
     email,
     role: mappedRole,
+    mustChangePassword: mustChangePassword === true,
     profile: profileFromAuth(userId, id, email, mappedRole),
   }
 }
@@ -101,7 +134,7 @@ export function parseLoginResponse(data: unknown): AuthSession | null {
 /** username: Employee ID for employees, or work email for HR Admins. */
 export async function login(username: string, password: string): Promise<LoginResult> {
   const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS)
 
   let response: Response
   try {
@@ -116,7 +149,7 @@ export async function login(username: string, password: string): Promise<LoginRe
   } catch {
     return { ok: false, reason: 'network' }
   } finally {
-    window.clearTimeout(timer)
+    clearTimeout(timer)
   }
 
   if (response.status === 401) return { ok: false, reason: 'invalid-credentials' }
@@ -145,8 +178,9 @@ export async function login(username: string, password: string): Promise<LoginRe
 
 /** Plain-language messages for each failure. They never include server text. */
 export const LOGIN_ERROR_MESSAGES: Record<LoginFailure, string> = {
-  'invalid-credentials': 'That Employee ID and password don’t match. Check both and try again.',
-  'invalid-request': 'Enter your Employee ID and password.',
+  'invalid-credentials':
+    'Those sign-in details don’t match. Check your Employee ID (HR Admins: work email) and password.',
+  'invalid-request': 'The server couldn’t read this sign-in. Try again, or contact HR if it keeps happening.',
   'rate-limited': 'Too many sign-in attempts. Wait a few minutes, then try again.',
   network: 'Can’t connect to RIGHTSKU. Check your internet connection and try again.',
   server: 'Sign-in is temporarily unavailable. Try again in a few minutes.',

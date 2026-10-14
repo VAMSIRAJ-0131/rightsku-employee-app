@@ -50,7 +50,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 // probe controller inside this test class; Spring Boot's test scanning skips
 // nested classes of tests, so its endpoints were never mapped: HTTP 404.)
 @Import({SecurityConfig.class, JwtService.class, AppUserDetailsService.class, LoginRateLimiter.class,
-        RoleProbeTestConfig.class})
+        PasswordChangeService.class, TimeConfig.class, RoleProbeTestConfig.class})
 class AuthControllerTest {
 
     // Test-only values.
@@ -79,6 +79,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private AppUserRepository appUserRepository;
+
+    @MockitoBean
+    private AuditEntryRepository auditEntryRepository;
 
     @Autowired
     @Qualifier("requestMappingHandlerMapping")
@@ -171,6 +174,44 @@ class AuthControllerTest {
     }
 
     @Test
+    void employeeIdIsAcceptedInLowerCaseAndWithSpaces() throws Exception {
+        givenUser(2L, EMPLOYEE_EMAIL, AppUser.ROLE_EMPLOYEE, true);
+
+        login("  emp001 ", PASSWORD)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.loginId").value(EMPLOYEE_ID))
+                .andExpect(jsonPath("$.role").value("EMPLOYEE"));
+    }
+
+    @Test
+    void hrAdminEmailIsAcceptedInAnyCaseAndWithSpaces() throws Exception {
+        givenUser(1L, HR_EMAIL, AppUser.ROLE_HR_ADMIN, true);
+
+        login("  HR@RightSKU.com ", PASSWORD)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(HR_EMAIL))
+                .andExpect(jsonPath("$.role").value("HR_ADMIN"));
+    }
+
+    @Test
+    void hrAdminCannotSignInWithAnIdInsteadOfEmail() throws Exception {
+        // HR Admins have no Employee ID; even the correct password is refused.
+        givenUser(1L, HR_EMAIL, AppUser.ROLE_HR_ADMIN, true);
+
+        login("hr", PASSWORD)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("Invalid ID or password"))
+                .andExpect(jsonPath("$.token").doesNotExist());
+    }
+
+    @Test
+    void invalidEmployeeIdFormatReturns401Not500() throws Exception {
+        login("EMP 001", PASSWORD)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("Invalid ID or password"));
+    }
+
+    @Test
     void wrongPasswordForEmployeeIdReturns401() throws Exception {
         givenUser(2L, EMPLOYEE_EMAIL, AppUser.ROLE_EMPLOYEE, true);
 
@@ -258,6 +299,136 @@ class AuthControllerTest {
                         .content("{\"email\":\"" + HR_EMAIL + "\",\"password\":\"" + PASSWORD + "\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fields.username").exists());
+    }
+
+    /* ---------- First sign-in with a temporary password ---------- */
+
+    private static final String NEW_PASSWORD = "Chosen-New-Passw0rd!";
+    private static final String CHANGE_PASSWORD = "/api/auth/change-password";
+
+    /** An employee created by HR: the password is temporary until they change it. */
+    private AppUser givenEmployeeWithTemporaryPassword() {
+        AppUser employee = givenUser(2L, EMPLOYEE_EMAIL, AppUser.ROLE_EMPLOYEE, true);
+        employee.requirePasswordChange();
+        return employee;
+    }
+
+    private String tokenFrom(MvcResult result) throws Exception {
+        return com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.token");
+    }
+
+    private org.springframework.test.web.servlet.ResultActions changePassword(
+            String token, String current, String next) throws Exception {
+        var request = post(CHANGE_PASSWORD)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"currentPassword\":\"" + current + "\",\"newPassword\":\"" + next + "\"}");
+        if (token != null) {
+            request.header("Authorization", "Bearer " + token);
+        }
+        return mockMvc.perform(request);
+    }
+
+    @Test
+    void temporaryPasswordSignInSaysPasswordMustChangeAndTokenIsRestricted() throws Exception {
+        givenEmployeeWithTemporaryPassword();
+
+        MvcResult result = login(EMPLOYEE_ID, PASSWORD)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mustChangePassword").value(true))
+                .andReturn();
+        String token = tokenFrom(result);
+
+        Jwt jwt = jwtService.jwtDecoderFromConfiguredSecret().decode(token);
+        assertThat(jwt.getClaimAsBoolean(JwtService.CLAIM_PASSWORD_CHANGE_REQUIRED)).isTrue();
+
+        // The token works for nothing except changing the password.
+        mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get(HR_PROBE).header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void firstSignInFlowChangesPasswordEndsOldSessionAndAllowsNewSignIn() throws Exception {
+        AppUser employee = givenEmployeeWithTemporaryPassword();
+        String temporaryToken = tokenFrom(login(EMPLOYEE_ID, PASSWORD).andReturn());
+
+        changePassword(temporaryToken, PASSWORD, NEW_PASSWORD).andExpect(status().isNoContent());
+        assertThat(employee.isMustChangePassword()).isFalse();
+        assertThat(passwordEncoder.matches(NEW_PASSWORD, employee.getPasswordHash())).isTrue();
+
+        // The old session has ended: the token used for the change no longer works.
+        changePassword(temporaryToken, NEW_PASSWORD, "Another-New-Passw0rd").andExpect(status().isUnauthorized());
+        mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + temporaryToken))
+                .andExpect(status().isUnauthorized());
+
+        // The temporary password no longer signs in; the new one does, with full access.
+        login(EMPLOYEE_ID, PASSWORD).andExpect(status().isUnauthorized());
+        MvcResult fresh = login(EMPLOYEE_ID, NEW_PASSWORD)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mustChangePassword").value(false))
+                .andReturn();
+        mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + tokenFrom(fresh)))
+                .andExpect(status().isOk())
+                .andExpect(content().string("employee-ok"));
+    }
+
+    @Test
+    void changingPasswordEndsEverySessionOfThatAccount() throws Exception {
+        givenUser(2L, EMPLOYEE_EMAIL, AppUser.ROLE_EMPLOYEE, true);
+        String phone = tokenFrom(login(EMPLOYEE_ID, PASSWORD).andReturn());
+        String laptop = tokenFrom(login(EMPLOYEE_ID, PASSWORD).andReturn());
+
+        changePassword(laptop, PASSWORD, NEW_PASSWORD).andExpect(status().isNoContent());
+
+        mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + phone))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void wrongCurrentPasswordIsRefusedAndSessionStaysUsable() throws Exception {
+        AppUser employee = givenEmployeeWithTemporaryPassword();
+        String token = tokenFrom(login(EMPLOYEE_ID, PASSWORD).andReturn());
+
+        changePassword(token, "Not-The-Passw0rd!", NEW_PASSWORD)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields.currentPassword").exists())
+                .andExpect(content().string(not(containsString(NEW_PASSWORD))));
+        assertThat(employee.isMustChangePassword()).isTrue();
+
+        // Still allowed to try again with the same token.
+        changePassword(token, PASSWORD, NEW_PASSWORD).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void weakOrUnchangedNewPasswordIsRefused() throws Exception {
+        givenEmployeeWithTemporaryPassword();
+        String token = tokenFrom(login(EMPLOYEE_ID, PASSWORD).andReturn());
+
+        changePassword(token, PASSWORD, "short").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields.newPassword").exists());
+        changePassword(token, PASSWORD, PASSWORD).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields.newPassword").exists());
+        changePassword(token, PASSWORD, "").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields.newPassword").exists());
+    }
+
+    @Test
+    void changePasswordNeedsAToken() throws Exception {
+        changePassword(null, PASSWORD, NEW_PASSWORD).andExpect(status().isUnauthorized());
+        changePassword("not.a.real.token", PASSWORD, NEW_PASSWORD).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void hrSettingTemporaryPasswordAgainEndsTheNormalSession() throws Exception {
+        AppUser employee = givenUser(2L, EMPLOYEE_EMAIL, AppUser.ROLE_EMPLOYEE, true);
+        String token = tokenFrom(login(EMPLOYEE_ID, PASSWORD).andReturn());
+        mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + token)).andExpect(status().isOk());
+
+        employee.requirePasswordChange();
+
+        mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
     }
 
     /* ---------- Rate limiting ---------- */

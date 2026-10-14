@@ -14,6 +14,21 @@ treated as an email, and email sign-in is accepted **only for HR Admin accounts*
 Every failure (wrong password, unknown ID or email, inactive account, employee
 using an email) returns the same `401 Invalid ID or password`.
 
+Before the lookup the backend normalizes what was typed: an Employee ID is
+trimmed and upper-cased with `AppUser.normalizeLoginId()` (` emp001 ` finds
+`EMP001`), and an email is trimmed and lower-cased. A value that can never be a
+valid Employee ID is refused without a database lookup. HR Admins have no
+Employee ID, so an HR Admin must type the full email; anything without `@` is
+looked up only as an Employee ID.
+
+**Finding out why a sign-in was refused:** the response never says why, but
+the backend console prints one line per refusal, without the typed ID, email
+or password, for example `Sign-in refused: no account uses that email.`,
+`Sign-in refused: no account has that Employee ID (HR Admins sign in with
+their email).`, `Sign-in failed: wrong password or unknown account.`,
+`Sign-in failed: the account is inactive.` or `Sign-in refused: too many
+failed attempts; blocked for N more seconds.`
+
 Passwords are stored as BCrypt hashes (cost 12). A successful sign-in returns a
 JWT (8 hours) whose subject is the internal user ID. Every request re-checks that
 the account still exists, is active and has the same role.
@@ -55,11 +70,36 @@ HR Admins create employees through `POST /api/hr/employees`. The service:
 7. Deactivating an employee also deactivates their login; their open sessions
    stop at the next request. Activating restores sign-in.
 
+**First sign-in with a temporary password (V4)**
+
+- New employee accounts are marked `must_change_password`. Migration V4 also
+  marks every existing employee account that has a valid Employee ID (all of
+  them still had HR's temporary password). Nobody is locked out: they sign in
+  with the password they already have and then choose a new one. Older rows
+  without an Employee ID (they cannot sign in anyway) and HR Admin accounts are
+  not changed.
+- Signing in with a temporary password returns `mustChangePassword: true` and
+  a token that can only be used for `POST /api/auth/change-password`
+  (`{"currentPassword": "...", "newPassword": "..."}`). Every other API answers
+  403, and the app shows only the "Choose your password" screen.
+- The current password must be right (wrong guesses count towards the
+  sign-in rate limit), and the new one must follow `PasswordPolicy` and be
+  different. On success (204) the flag is cleared and the account's
+  `session_version` goes up.
+
+**Ending sessions**
+
+Every token carries the account's session version (`sv`) and the
+"password change required" flag (`pwc`). `ActiveUserJwtValidator` rejects a
+token whose values no longer match the account, so after a password change
+every older token (other phones, the temporary-password session) gets 401 and
+the user signs in again with the new password. Tokens issued before V4 have
+neither claim; they count as version 0 / no change required.
+
 **Still not enforced at the database level:** no trigger yet checks that
 `employees.employee_code` equals the linked `app_users.login_id`; this is
 guaranteed by the service, which is the only code that creates employees.
-**Not built yet:** forcing employees to change the temporary password at first
-sign-in, and an HR "reset password" action.
+**Not built yet:** an HR "reset password" action.
 
 ## Login rate limiting
 

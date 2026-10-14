@@ -57,6 +57,21 @@ class JwtServiceTest {
     }
 
     @Test
+    void tokenCarriesSessionVersionAndPasswordChangeFlag() {
+        AppUser employee = user(12L, "emp@rightsku.com", AppUser.ROLE_EMPLOYEE);
+        employee.requirePasswordChange();
+
+        Jwt temporary = jwtService.jwtDecoderFromConfiguredSecret().decode(jwtService.generateToken(employee));
+        assertThat(((Number) temporary.getClaim(JwtService.CLAIM_SESSION_VERSION)).intValue()).isZero();
+        assertThat(temporary.getClaimAsBoolean(JwtService.CLAIM_PASSWORD_CHANGE_REQUIRED)).isTrue();
+
+        employee.changePassword("new-hash", java.time.Instant.parse("2026-10-14T00:00:00Z"));
+        Jwt normal = jwtService.jwtDecoderFromConfiguredSecret().decode(jwtService.generateToken(employee));
+        assertThat(((Number) normal.getClaim(JwtService.CLAIM_SESSION_VERSION)).intValue()).isEqualTo(1);
+        assertThat(normal.getClaimAsBoolean(JwtService.CLAIM_PASSWORD_CHANGE_REQUIRED)).isFalse();
+    }
+
+    @Test
     void tokenSignedWithDifferentSecretIsRejected() {
         JwtService other = new JwtService("another-test-only-secret-abcdefghijklmnopqrstuvwxyz", Duration.ofHours(8));
         String foreignToken = other.generateToken(user(1L, "a@rightsku.com", AppUser.ROLE_EMPLOYEE));
