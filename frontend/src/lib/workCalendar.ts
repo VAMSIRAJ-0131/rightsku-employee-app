@@ -69,6 +69,8 @@ export interface HolidayRecord {
 
 /** Timesheets can go back this many days (same as the server). */
 export const MAX_DAYS_BACK = 60
+/** Most hours that can be logged for one working day (same as the server). */
+export const MAX_HOURS_PER_DAY = 9
 
 /* ---------- Month grid for the timesheet date picker ---------- */
 
@@ -184,14 +186,119 @@ export function validateTimesheet(values: TimesheetFormValues, pickable: Set<str
   const errors: TimesheetFormErrors = {}
   if (!values.date) errors.date = 'Pick a working day in the calendar.'
   else if (!pickable.has(values.date)) errors.date = 'This date can’t take a timesheet. Pick a working day.'
-  const hours = Number(values.hours)
-  if (!values.hours.trim() || !Number.isFinite(hours) || hours <= 0 || hours > 24 || Math.round(hours * 4) !== hours * 4) {
-    errors.hours = 'Enter hours from 0.25 to 24, in steps of 0.25 (for example 7.5).'
-  }
+  const hoursProblem = checkDayHours(values.hours)
+  if (hoursProblem) errors.hours = hoursProblem
   const description = values.description.trim()
   if (!description) errors.description = 'Describe the work you did.'
   else if (description.length > 500) errors.description = 'Use at most 500 characters.'
   return errors
+}
+
+/** Hours for one day: 0.25 to 9 in steps of 0.25 (15 minutes). Returns the problem, if any. */
+export function checkDayHours(value: string): string | undefined {
+  const hours = Number(value)
+  if (!value.trim() || !Number.isFinite(hours) || hours <= 0 || hours > MAX_HOURS_PER_DAY || Math.round(hours * 4) !== hours * 4) {
+    return `Enter hours from 0.25 to ${MAX_HOURS_PER_DAY}, in steps of 0.25 (for example 7.5).`
+  }
+  return undefined
+}
+
+/* ---------- Weekly timesheet rows ---------- */
+
+/** Monday of the week that contains this date. */
+export function weekStartOf(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`)
+  return addDays(iso, -((d.getDay() + 6) % 7))
+}
+
+export interface WeekRow {
+  iso: string
+  /** "Monday · Oct 12" */
+  label: string
+  state: Exclude<CellState, 'outside'>
+  /** Only "available" rows take hours; every other row is greyed out. */
+  disabled: boolean
+  holidayName: string | null
+  /** Hours HR scheduled for that day, capped at the daily maximum. */
+  scheduledHours: number
+  /** The entry already submitted for that day, if any. */
+  entry: Timesheet | null
+  isToday: boolean
+}
+
+/**
+ * The seven days of one week (Monday first), using the server calendar for
+ * working days, weekly offs and holidays. A day can take hours only when it
+ * is a working day, not in the future, not more than MAX_DAYS_BACK days ago
+ * and not already submitted.
+ */
+export function buildWeek(weekStart: string, calendar: CalendarDay[], today: string, entries: Timesheet[]): WeekRow[] {
+  const byDate = new Map(calendar.map((d) => [d.date, d]))
+  const entryByDate = new Map(entries.map((e) => [e.date, e]))
+  const oldest = addDays(today, -MAX_DAYS_BACK)
+  return Array.from({ length: 7 }, (_, i) => {
+    const iso = addDays(weekStart, i)
+    const info = byDate.get(iso)
+    const entry = entryByDate.get(iso) ?? null
+    const d = new Date(`${iso}T00:00:00`)
+    const label = `${d.toLocaleDateString('en-US', { weekday: 'long' })} · ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+    let state: WeekRow['state']
+    // An entry already submitted is always shown, even if the day later became a holiday.
+    if (entry) state = 'submitted'
+    else if (info?.kind === 'HOLIDAY') state = 'holiday'
+    else if (info?.kind === 'WEEKLY_OFF') state = 'weekly-off'
+    else if (iso > today) state = 'future'
+    else if (iso < oldest || !info) state = 'too-old'
+    else state = 'available'
+    const scheduled = Math.min(MAX_HOURS_PER_DAY, Number(info?.hoursPerDay ?? 0) || 0)
+    return {
+      iso, label, state, disabled: state !== 'available', holidayName: info?.holidayName ?? null,
+      scheduledHours: scheduled, entry, isToday: iso === today,
+    }
+  })
+}
+
+/** Starting value for a row's hours box: the scheduled hours for available days, empty otherwise. */
+export function defaultHours(row: WeekRow): string {
+  return row.state === 'available' && row.scheduledHours > 0 ? String(row.scheduledHours) : ''
+}
+
+export interface WeekFormErrors {
+  /** Per date: the problem with that day's hours. */
+  hours: Record<string, string>
+  description?: string
+  /** Nothing to submit. */
+  form?: string
+}
+
+/**
+ * Checks the week before sending. Empty boxes are skipped (that day is not
+ * submitted). Returns the days to send, in date order, and any problems.
+ */
+export function validateWeek(
+  rows: WeekRow[], hours: Record<string, string>, description: string,
+): { entries: { date: string; hours: string }[]; errors: WeekFormErrors } {
+  const errors: WeekFormErrors = { hours: {} }
+  const entries: { date: string; hours: string }[] = []
+  for (const row of rows) {
+    if (row.disabled) continue
+    const value = (hours[row.iso] ?? '').trim()
+    if (!value) continue
+    const problem = checkDayHours(value)
+    if (problem) errors.hours[row.iso] = problem
+    else entries.push({ date: row.iso, hours: value })
+  }
+  if (entries.length === 0 && Object.keys(errors.hours).length === 0) {
+    errors.form = 'Enter hours for at least one working day.'
+  }
+  const text = description.trim()
+  if (!text) errors.description = 'Describe the work you did.'
+  else if (text.length > 500) errors.description = 'Use at most 500 characters.'
+  return { entries, errors }
+}
+
+export function hasWeekErrors(errors: WeekFormErrors): boolean {
+  return Object.keys(errors.hours).length > 0 || !!errors.description || !!errors.form
 }
 
 const STATUS: Record<string, Status> = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected' }

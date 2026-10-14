@@ -21,7 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
  *       date) and company holidays are refused.</li>
  *   <li>No future dates, nothing older than {@value #MAX_DAYS_BACK} days, and
  *       nothing before the joining date.</li>
- *   <li>One entry per date; hours from 0.25 to 24 in steps of 0.25.</li>
+ *   <li>One entry per date; hours from 0.25 to {@value #MAX_HOURS_PER_DAY} in steps of 0.25.</li>
  * </ul>
  * The same rules are shown in the app (non-working dates are disabled), but
  * the server is what enforces them.
@@ -31,7 +31,9 @@ public class TimesheetService {
 
     static final int MAX_DAYS_BACK = 60;
     private static final BigDecimal QUARTER = new BigDecimal("0.25");
-    private static final BigDecimal MAX_HOURS = BigDecimal.valueOf(24);
+    /** Most hours an employee can log for one working day. */
+    static final int MAX_HOURS_PER_DAY = 9;
+    private static final BigDecimal MAX_HOURS = BigDecimal.valueOf(MAX_HOURS_PER_DAY);
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.ENGLISH);
 
     private final TimesheetEntryRepository entries;
@@ -118,7 +120,7 @@ public class TimesheetService {
     static BigDecimal checkHours(BigDecimal hours) {
         if (hours == null || hours.signum() <= 0 || hours.compareTo(MAX_HOURS) > 0
                 || hours.remainder(QUARTER).signum() != 0) {
-            throw ApiException.invalid("hours", "Enter hours from 0.25 to 24, in steps of 0.25 (15 minutes).");
+            throw ApiException.invalid("hours", "Enter hours from 0.25 to " + MAX_HOURS_PER_DAY + ", in steps of 0.25 (15 minutes).");
         }
         return hours.setScale(2, RoundingMode.UNNECESSARY);
     }

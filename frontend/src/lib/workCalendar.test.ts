@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  buildMonthGrid, monthRange, shiftMonth, submitTimesheet, toTimesheet, validateHoliday, validateSchedule,
-  validateTimesheet, type CalendarDay, type DayCell, type Weekday,
+  buildMonthGrid, buildWeek, checkDayHours, defaultHours, hasWeekErrors, monthRange, shiftMonth, submitTimesheet,
+  toTimesheet, validateHoliday, validateSchedule, validateTimesheet, validateWeek, weekStartOf,
+  type CalendarDay, type DayCell, type Weekday,
 } from './workCalendar'
+import type { Timesheet } from '../data/types'
 
 const TODAY = '2026-10-14' // Wednesday
 
@@ -99,7 +101,7 @@ describe('timesheet form', () => {
   it('refuses a date that is not pickable and bad hours', () => {
     const errors = validateTimesheet({ date: '2026-10-10', hours: '7.1', description: '' }, pickable)
     expect(Object.keys(errors).sort()).toEqual(['date', 'description', 'hours'])
-    for (const bad of ['0', '-2', '25', 'abc', '']) {
+    for (const bad of ['0', '-2', '9.25', '10', '25', 'abc', '']) {
       expect(validateTimesheet({ date: '2026-10-13', hours: bad, description: 'x' }, pickable).hours, bad).toBeDefined()
     }
   })
@@ -137,5 +139,68 @@ describe('HR schedule and holiday forms', () => {
   it('needs a holiday date and name', () => {
     expect(validateHoliday({ date: '2026-10-02', name: 'Gandhi Jayanti' })).toEqual({})
     expect(Object.keys(validateHoliday({ date: '', name: '  ' })).sort()).toEqual(['date', 'name'])
+  })
+})
+
+describe('weekly timesheet rows', () => {
+  const october = serverMonth('2026-10', { holidays: { '2026-10-02': 'Gandhi Jayanti', '2026-10-03': 'Weekend holiday' } })
+  const submitted: Timesheet[] = [{ id: '1', employeeId: 'EMP010', date: '2026-10-12', hours: 8, description: 'x', status: 'Pending' }]
+
+  it('starts weeks on Monday', () => {
+    expect(weekStartOf('2026-10-14')).toBe('2026-10-12')
+    expect(weekStartOf('2026-10-12')).toBe('2026-10-12')
+    expect(weekStartOf('2026-10-18')).toBe('2026-10-12')
+  })
+
+  it('shows seven labelled days; only open working days take hours', () => {
+    const rows = buildWeek('2026-10-12', october, TODAY, submitted)
+    expect(rows.map((r) => r.label)).toEqual([
+      'Monday · Oct 12', 'Tuesday · Oct 13', 'Wednesday · Oct 14', 'Thursday · Oct 15',
+      'Friday · Oct 16', 'Saturday · Oct 17', 'Sunday · Oct 18',
+    ])
+    expect(rows.map((r) => r.state)).toEqual(['submitted', 'available', 'available', 'future', 'future', 'weekly-off', 'weekly-off'])
+    expect(rows.filter((r) => !r.disabled).map((r) => r.iso)).toEqual(['2026-10-13', '2026-10-14'])
+    expect(rows[0].entry?.hours).toBe(8)
+  })
+
+  it('greys out holidays, including a holiday on a weekly off', () => {
+    const rows = buildWeek('2026-09-28', [...serverMonth('2026-09'), ...october], TODAY, [])
+    expect(rows[4]).toMatchObject({ iso: '2026-10-02', state: 'holiday', disabled: true, holidayName: 'Gandhi Jayanti' })
+    expect(rows[5]).toMatchObject({ iso: '2026-10-03', state: 'holiday', disabled: true })
+    expect(rows.filter((r) => !r.disabled)).toHaveLength(4)
+  })
+
+  it('defaults to five workdays with the company default schedule, and follows other schedules', () => {
+    expect(buildWeek('2026-10-05', october, TODAY, []).filter((r) => r.state === 'available')).toHaveLength(5)
+    const sixDays = serverMonth('2026-10', { offs: [0] })
+    expect(buildWeek('2026-10-05', sixDays, TODAY, []).filter((r) => r.state === 'available')).toHaveLength(6)
+  })
+
+  it('pre-fills scheduled hours, never more than 9', () => {
+    const longDays = serverMonth('2026-10').map((d) => ({ ...d, hoursPerDay: 10 }))
+    const rows = buildWeek('2026-10-05', longDays, TODAY, [])
+    expect(defaultHours(rows[0])).toBe('9')
+    expect(defaultHours(buildWeek('2026-10-05', october, TODAY, [])[0])).toBe('8')
+    expect(defaultHours(rows[5])).toBe('')
+  })
+
+  it('allows up to 9 hours per day in quarter hours', () => {
+    expect(checkDayHours('9')).toBeUndefined()
+    expect(checkDayHours('0.25')).toBeUndefined()
+    for (const bad of ['9.25', '10', '0', '7.1', 'x']) expect(checkDayHours(bad), bad).toBeDefined()
+  })
+
+  it('submits only filled open days, and checks hours and description', () => {
+    const rows = buildWeek('2026-10-12', october, TODAY, submitted)
+    const ok = validateWeek(rows, { '2026-10-13': '9', '2026-10-14': '', '2026-10-17': '8' }, 'Payslip screen')
+    expect(ok.entries).toEqual([{ date: '2026-10-13', hours: '9' }])
+    expect(hasWeekErrors(ok.errors)).toBe(false)
+
+    const bad = validateWeek(rows, { '2026-10-13': '10', '2026-10-14': '7.5' }, ' ')
+    expect(Object.keys(bad.errors.hours)).toEqual(['2026-10-13'])
+    expect(bad.errors.description).toBeDefined()
+
+    const empty = validateWeek(rows, {}, 'x')
+    expect(empty.errors.form).toBe('Enter hours for at least one working day.')
   })
 })

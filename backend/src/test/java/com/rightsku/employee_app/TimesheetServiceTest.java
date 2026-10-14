@@ -194,11 +194,12 @@ class TimesheetServiceTest {
     }
 
     @Test
-    void hoursMustBeQuarterHoursUpToTwentyFour() {
-        for (String bad : new String[] {"0", "-1", "24.25", "7.1", "0.2"}) {
+    void hoursMustBeQuarterHoursUpToNine() {
+        for (String bad : new String[] {"0", "-1", "9.25", "10", "24", "7.1", "0.2"}) {
             assertApiError(catchThrowable(() -> service.submit(110L, entry("2026-10-12", bad))), HttpStatus.BAD_REQUEST, "hours");
         }
         assertThat(service.submit(110L, entry("2026-10-12", "0.25")).hours()).isEqualByComparingTo("0.25");
+        assertThat(service.submit(110L, entry("2026-10-13", "9")).hours()).isEqualByComparingTo("9");
     }
 
     @Test
