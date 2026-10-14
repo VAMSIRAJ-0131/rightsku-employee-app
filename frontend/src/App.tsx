@@ -39,6 +39,7 @@ export default function App() {
       <ChangePasswordScreen
         token={session.token}
         loginId={session.loginId}
+        role={session.role}
         onChanged={() => {
           setSession(null)
           setSignInNotice('Password changed. Sign in with your new password.')
@@ -69,6 +70,10 @@ export default function App() {
       token={session.token}
       onLogout={logout}
       onSessionExpired={sessionExpired}
+      onPasswordChanged={() => {
+        setSession(null)
+        setSignInNotice('Password changed. Sign in with your new password.')
+      }}
     />
   )
 }

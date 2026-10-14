@@ -1,8 +1,15 @@
 // Changing the signed-in user's password (POST /api/auth/change-password).
-// Used at first sign-in, when an employee still has HR's temporary password.
+// Used at first sign-in (temporary password from HR) and whenever an
+// employee wants to change their password later.
 import { apiRequest, type ApiResult } from './api'
+import type { Role } from '../data/types'
 
-/** Same rules as the backend PasswordPolicy. */
+/** Employees choose exactly 8 digits (same rule as the backend PasswordPolicy). */
+export const EMPLOYEE_PASSWORD_DIGITS = 8
+export const EMPLOYEE_PASSWORD_MESSAGE = 'Password must contain exactly 8 digits.'
+const EMPLOYEE_PASSWORD = /^[0-9]{8}$/
+
+/** HR Admins keep the longer rule. */
 export const MIN_PASSWORD_LENGTH = 12
 const MAX_PASSWORD_BYTES = 72
 
@@ -14,29 +21,42 @@ export interface PasswordFormValues {
 
 export type PasswordFormErrors = Partial<Record<keyof PasswordFormValues, string>>
 
+/** The message for a new password that breaks the rule for this role, if any. */
+export function newPasswordProblem(password: string, role: Role): string | undefined {
+  if (role === 'employee') return EMPLOYEE_PASSWORD.test(password) ? undefined : EMPLOYEE_PASSWORD_MESSAGE
+  if (!password) return 'Choose a new password.'
+  if (password !== password.trim()) return 'The password can’t start or end with a space.'
+  if (password.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters.`
+  if (new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES) return 'This password is too long.'
+  return undefined
+}
+
 /**
  * Checks the form before it is sent. The server checks everything again
  * (including that the current password is right); this only gives faster,
  * clearer feedback.
  */
-export function validatePasswordChange(values: PasswordFormValues): PasswordFormErrors {
+export function validatePasswordChange(values: PasswordFormValues, role: Role = 'employee'): PasswordFormErrors {
   const errors: PasswordFormErrors = {}
   const { currentPassword, newPassword, confirmPassword } = values
-  if (!currentPassword) errors.currentPassword = 'Enter the password you just signed in with.'
-  if (!newPassword) errors.newPassword = 'Choose a new password.'
-  else if (newPassword !== newPassword.trim()) errors.newPassword = 'The password can’t start or end with a space.'
-  else if (newPassword.length < MIN_PASSWORD_LENGTH) errors.newPassword = `Use at least ${MIN_PASSWORD_LENGTH} characters.`
-  else if (new TextEncoder().encode(newPassword).length > MAX_PASSWORD_BYTES) errors.newPassword = 'This password is too long.'
+  if (!currentPassword) errors.currentPassword = 'Enter your current password.'
+  const problem = newPasswordProblem(newPassword, role)
+  if (problem) errors.newPassword = problem
   else if (newPassword === currentPassword) errors.newPassword = 'Choose a password that is different from your current one.'
-  if (!errors.newPassword && confirmPassword !== newPassword) errors.confirmPassword = 'The two passwords don’t match.'
+  if (!confirmPassword) errors.confirmPassword = 'Enter the new password again.'
+  else if (confirmPassword !== newPassword) errors.confirmPassword = 'The two passwords don’t match.'
   return errors
 }
 
 /** 204 on success. Afterwards every session of this account has ended; sign in again. */
-export function changePassword(token: string, currentPassword: string, newPassword: string): Promise<ApiResult<null>> {
+export function changePassword(token: string, values: PasswordFormValues): Promise<ApiResult<null>> {
   return apiRequest<null>('/api/auth/change-password', {
     token,
     method: 'POST',
-    body: { currentPassword, newPassword },
+    body: {
+      currentPassword: values.currentPassword,
+      newPassword: values.newPassword,
+      confirmPassword: values.confirmPassword,
+    },
   })
 }

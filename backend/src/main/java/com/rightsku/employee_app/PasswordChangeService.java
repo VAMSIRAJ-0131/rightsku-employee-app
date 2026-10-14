@@ -16,8 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <ul>
  *   <li>The current password must be correct. Wrong guesses are limited by
  *       {@link LoginRateLimiter}, like sign-in.</li>
- *   <li>The new password must follow {@link PasswordPolicy} and differ from
- *       the current one.</li>
+ *   <li>The new password must follow {@link PasswordPolicy} (employees:
+ *       exactly 8 digits; HR Admins: at least 12 characters), be typed the
+ *       same twice, and differ from the current one.</li>
  *   <li>On success the password is stored only as a BCrypt hash, the
  *       "must change" flag is cleared and the session version increases, so
  *       every existing token (including the one used for this request) stops
@@ -65,9 +66,12 @@ public class PasswordChangeService {
             throw ApiException.invalid("currentPassword", "Your current password is not correct.");
         }
 
-        PasswordPolicy.problem(request.newPassword()).ifPresent(problem -> {
+        PasswordPolicy.problemForOwnPassword(user.getRole(), request.newPassword()).ifPresent(problem -> {
             throw ApiException.invalid("newPassword", problem);
         });
+        if (!request.newPassword().equals(request.confirmPassword())) {
+            throw ApiException.invalid("confirmPassword", "The two new passwords don't match.");
+        }
         if (matches(request.newPassword(), user.getPasswordHash())) {
             throw ApiException.invalid("newPassword", "Choose a password that is different from your current one.");
         }

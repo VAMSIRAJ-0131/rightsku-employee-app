@@ -1,11 +1,15 @@
-// Shown right after sign-in while the account still has HR's temporary
-// password. Nothing else in the app is reachable until a new password is set
-// (the server refuses every other request made with this session as well).
+// Choosing a new password.
+// - required: right after sign-in while the account still has HR's temporary
+//   password. Nothing else in the app is reachable until a new password is
+//   set (the server refuses every other request made with this session too).
+// - voluntary: an employee changes their password later from Profile.
+// Employees choose exactly 8 digits; the new password is typed twice.
 import { useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icons'
 import { Button, Card, Notice, Page, Section, Spinner, TopBar } from '../../components/ui'
+import type { Role } from '../../data/types'
 import {
-  MIN_PASSWORD_LENGTH, changePassword, validatePasswordChange,
+  EMPLOYEE_PASSWORD_DIGITS, MIN_PASSWORD_LENGTH, changePassword, validatePasswordChange,
   type PasswordFormErrors, type PasswordFormValues,
 } from '../../lib/password'
 
@@ -14,12 +18,19 @@ const EMPTY: PasswordFormValues = { currentPassword: '', newPassword: '', confir
 export default function ChangePasswordScreen({
   token,
   loginId,
+  role,
+  mode = 'required',
+  onBack,
   onChanged,
   onLogout,
   onSessionExpired,
 }: {
   token: string
   loginId: string | null
+  role: Role
+  /** required = first sign-in (no way around it); voluntary = from Profile, with a back button. */
+  mode?: 'required' | 'voluntary'
+  onBack?: () => void
   /** Called after the password was changed; the app then asks the user to sign in again. */
   onChanged: () => void
   onLogout: () => void
@@ -40,12 +51,12 @@ export default function ChangePasswordScreen({
     e.preventDefault()
     if (saving) return
     setFormError(null)
-    const found = validatePasswordChange(values)
+    const found = validatePasswordChange(values, role)
     setErrors(found)
     if (Object.keys(found).length > 0) return
 
     setSaving(true)
-    const result = await changePassword(token, values.currentPassword, values.newPassword)
+    const result = await changePassword(token, values)
     setSaving(false)
     if (result.ok) {
       setValues(EMPTY)
@@ -59,19 +70,31 @@ export default function ChangePasswordScreen({
     const fieldErrors: PasswordFormErrors = {}
     if (result.error.fields.currentPassword) fieldErrors.currentPassword = result.error.fields.currentPassword
     if (result.error.fields.newPassword) fieldErrors.newPassword = result.error.fields.newPassword
+    if (result.error.fields.confirmPassword) fieldErrors.confirmPassword = result.error.fields.confirmPassword
     setErrors(fieldErrors)
     if (fieldErrors.currentPassword) setValues((v) => ({ ...v, currentPassword: '' }))
     setFormError(Object.keys(fieldErrors).length ? null : result.error.message)
   }
 
-  return (
-    <Page withNav={false}>
-      <TopBar title="Choose your password" subtitle={loginId ? `Signed in as ${loginId}` : undefined} />
+  const digitsOnly = role === 'employee'
+  const required = mode === 'required'
+  const newHint = digitsOnly
+    ? `Exactly ${EMPLOYEE_PASSWORD_DIGITS} digits (0–9), different from your current password.`
+    : `At least ${MIN_PASSWORD_LENGTH} characters, different from your current password.`
+
+  const content = (
+    <>
+      <TopBar
+        title={required ? 'Choose your password' : 'Change password'}
+        subtitle={loginId ? `Signed in as ${loginId}` : undefined}
+        onBack={required ? undefined : onBack}
+      />
       <form noValidate onSubmit={submit}>
         <Section>
           <Notice>
-            For your security, choose your own password before continuing. Enter the password you just signed in with
-            (the one HR gave you), then your new password. You’ll then sign in again with the new password.
+            {required
+              ? 'For your security, choose your own password before continuing. Enter the password you just signed in with (the one HR gave you), then your new password. You’ll then sign in again with the new password.'
+              : 'Enter your current password, then your new password twice. After saving, you’ll be signed out everywhere and sign in again with the new password.'}
           </Notice>
         </Section>
         {formError && (
@@ -97,7 +120,8 @@ export default function ChangePasswordScreen({
               onChange={set('newPassword')}
               error={errors.newPassword}
               autoComplete="new-password"
-              hint={`At least ${MIN_PASSWORD_LENGTH} characters, different from your current password.`}
+              hint={newHint}
+              digitsOnly={digitsOnly}
               show={show}
             />
             <PasswordField
@@ -106,6 +130,7 @@ export default function ChangePasswordScreen({
               onChange={set('confirmPassword')}
               error={errors.confirmPassword}
               autoComplete="new-password"
+              digitsOnly={digitsOnly}
               show={show}
             />
             <label className="flex items-center gap-2 text-[13px] text-ink-soft">
@@ -126,17 +151,26 @@ export default function ChangePasswordScreen({
               </>
             )}
           </Button>
-          <Button variant="ghost" onClick={onLogout} disabled={saving} className="mt-2 w-full">
-            Log out
-          </Button>
+          {required ? (
+            <Button variant="ghost" onClick={onLogout} disabled={saving} className="mt-2 w-full">
+              Log out
+            </Button>
+          ) : (
+            <Button variant="ghost" onClick={onBack} disabled={saving} className="mt-2 w-full">
+              Cancel
+            </Button>
+          )}
         </Section>
       </form>
-    </Page>
+    </>
   )
+
+  // First sign-in: a page of its own, with no navigation to anywhere else.
+  return required ? <Page withNav={false}>{content}</Page> : content
 }
 
 function PasswordField({
-  label, value, onChange, error, hint, autoComplete, show,
+  label, value, onChange, error, hint, autoComplete, show, digitsOnly = false,
 }: {
   label: string
   value: string
@@ -145,6 +179,8 @@ function PasswordField({
   hint?: string
   autoComplete: string
   show: boolean
+  /** Number keypad on phones and at most 8 characters. The rule itself is checked on submit. */
+  digitsOnly?: boolean
 }) {
   const id = `pw-${label.replace(/\W+/g, '-').toLowerCase()}`
   return (
@@ -156,6 +192,8 @@ function PasswordField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         autoComplete={autoComplete}
+        inputMode={digitsOnly ? 'numeric' : undefined}
+        maxLength={digitsOnly ? EMPLOYEE_PASSWORD_DIGITS : undefined}
         aria-invalid={!!error}
         aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
         className={`mt-1.5 h-12 w-full rounded-lg border bg-white px-4 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
