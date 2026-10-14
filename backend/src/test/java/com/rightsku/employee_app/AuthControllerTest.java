@@ -5,6 +5,8 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static com.rightsku.employee_app.RoleProbeTestConfig.EMPLOYEE_PROBE;
+import static com.rightsku.employee_app.RoleProbeTestConfig.HR_PROBE;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -28,8 +30,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
  * Web-layer tests for login and role-based access. The real security
@@ -37,32 +39,22 @@ import org.springframework.web.bind.annotation.RestController;
  * repository is replaced by a mock, so no database is needed or changed.
  */
 @WebMvcTest(
-        controllers = {AuthController.class, AuthControllerTest.ProbeController.class},
+        controllers = AuthController.class,
         properties = {
                 "app.jwt.secret=" + JwtServiceTest.TEST_SECRET,
                 "HR_ADMIN_BOOTSTRAP_ENABLED=false"
         })
-@Import({SecurityConfig.class, JwtService.class, AppUserDetailsService.class})
+// RoleProbeTestConfig is imported explicitly. (The earlier version nested the
+// probe controller inside this test class; Spring Boot's test scanning skips
+// nested classes of tests, so its endpoints were never mapped: HTTP 404.)
+@Import({SecurityConfig.class, JwtService.class, AppUserDetailsService.class,
+        RoleProbeTestConfig.class})
 class AuthControllerTest {
 
     // Test-only values.
     private static final String HR_EMAIL = "hr@rightsku.com";
     private static final String EMPLOYEE_EMAIL = "emp@rightsku.com";
     private static final String PASSWORD = "Test-Only-Passw0rd!";
-
-    /** Tiny endpoints that exist only in tests, to check role rules. */
-    @RestController
-    static class ProbeController {
-        @GetMapping("/api/hr/probe")
-        String hr() {
-            return "hr-ok";
-        }
-
-        @GetMapping("/api/employee/probe")
-        String employee() {
-            return "employee-ok";
-        }
-    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -75,6 +67,10 @@ class AuthControllerTest {
 
     @MockitoBean
     private AppUserRepository appUserRepository;
+
+    @Autowired
+    @Qualifier("requestMappingHandlerMapping")
+    private RequestMappingHandlerMapping handlerMapping;
 
     private AppUser givenUser(long id, String email, String role, boolean active) {
         AppUser user = AppUser.create(email, passwordEncoder.encode(PASSWORD), role);
@@ -198,12 +194,12 @@ class AuthControllerTest {
 
     @Test
     void requestWithoutTokenReturns401() throws Exception {
-        mockMvc.perform(get("/api/hr/probe")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(HR_PROBE)).andExpect(status().isUnauthorized());
     }
 
     @Test
     void invalidTokenReturns401() throws Exception {
-        mockMvc.perform(get("/api/hr/probe").header("Authorization", "Bearer not.a.real.token"))
+        mockMvc.perform(get(HR_PROBE).header("Authorization", "Bearer not.a.real.token"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -214,18 +210,38 @@ class AuthControllerTest {
         String expired = new JwtService(JwtServiceTest.TEST_SECRET, Duration.ofHours(8), nineHoursAgo)
                 .generateToken(hr);
 
-        mockMvc.perform(get("/api/hr/probe").header("Authorization", "Bearer " + expired))
+        mockMvc.perform(get(HR_PROBE).header("Authorization", "Bearer " + expired))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * Guard: the role tests below are only meaningful if the probe endpoints
+     * are really mapped. If they ever go missing this fails with a clear
+     * message instead of an unexplained 404.
+     */
+    @Test
+    void probeEndpointsAreRegistered() {
+        var patterns = handlerMapping.getHandlerMethods().keySet().stream()
+                .flatMap(info -> info.getPatternValues().stream())
+                .toList();
+        assertThat(patterns)
+                .as("test probe endpoints must be mapped in the test context")
+                .contains(HR_PROBE, EMPLOYEE_PROBE);
+    }
+
+    @Test
+    void employeeEndpointWithoutTokenReturns401() throws Exception {
+        mockMvc.perform(get(EMPLOYEE_PROBE)).andExpect(status().isUnauthorized());
     }
 
     @Test
     void hrAdminCanUseHrEndpointsButNotEmployeeEndpoints() throws Exception {
         String token = jwtService.generateToken(givenUser(1L, HR_EMAIL, AppUser.ROLE_HR_ADMIN, true));
 
-        mockMvc.perform(get("/api/hr/probe").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get(HR_PROBE).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(content().string("hr-ok"));
-        mockMvc.perform(get("/api/employee/probe").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + token))
                 .andExpect(status().isForbidden());
     }
 
@@ -233,10 +249,10 @@ class AuthControllerTest {
     void employeeCanUseEmployeeEndpointsButNotHrEndpoints() throws Exception {
         String token = jwtService.generateToken(givenUser(2L, EMPLOYEE_EMAIL, AppUser.ROLE_EMPLOYEE, true));
 
-        mockMvc.perform(get("/api/employee/probe").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(content().string("employee-ok"));
-        mockMvc.perform(get("/api/hr/probe").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get(HR_PROBE).header("Authorization", "Bearer " + token))
                 .andExpect(status().isForbidden());
     }
 
@@ -247,7 +263,7 @@ class AuthControllerTest {
 
         ReflectionTestUtils.setField(employee, "active", false);
 
-        mockMvc.perform(get("/api/employee/probe").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -258,7 +274,7 @@ class AuthControllerTest {
 
         ReflectionTestUtils.setField(user, "role", AppUser.ROLE_EMPLOYEE);
 
-        mockMvc.perform(get("/api/hr/probe").header("Authorization", "Bearer " + hrToken))
+        mockMvc.perform(get(HR_PROBE).header("Authorization", "Bearer " + hrToken))
                 .andExpect(status().isUnauthorized());
     }
 }
