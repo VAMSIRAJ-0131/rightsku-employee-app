@@ -1,41 +1,55 @@
 import { useState, type FormEvent } from 'react'
 import { Icon } from '../components/Icons'
-import { BrandMark, Button, DevBanner, Notice, Spinner } from '../components/ui'
-import { devLogin, type Session } from '../data/sampleData'
+import { BrandMark, Button, Notice, Spinner } from '../components/ui'
+import { login, loginErrorMessage, type AuthSession } from '../lib/auth'
 
 const inputCls =
   'h-12 w-full rounded-lg border bg-white px-4 text-[15px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-mist-500 focus:ring-4 focus:ring-mist-100'
 
-export default function Login({ onLogin }: { onLogin: (session: Session) => void }) {
+export default function Login({ onLogin }: { onLogin: (session: AuthSession) => void }) {
+  // Employee ID for employees; HR Admins type their work email here instead.
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    if (loading) return
     setError('')
-    if (!username.trim() || !password) {
+    const id = username.trim()
+    if (!id || !password) {
       setError('Enter your Employee ID and password to sign in.')
       return
     }
+    if (id.includes('@') ? !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id) : !/^[A-Za-z0-9][A-Za-z0-9._-]{0,29}$/.test(id)) {
+      setError(
+        id.includes('@')
+          ? 'Enter a valid work email, like name@rightsku.com.'
+          : 'Enter a valid Employee ID, like EMP001.',
+      )
+      return
+    }
+
     setLoading(true)
-    // Simulated wait. In Phase 4 this becomes a secure call to the backend.
-    window.setTimeout(() => {
-      const session = devLogin(username, password)
-      setLoading(false)
-      if (session) onLogin(session)
-      else setError('That Employee ID and password don’t match. Check both and try again.')
-    }, 600)
+    // Real sign-in: POST /api/auth/login. No demo fallback.
+    const result = await login(id, password)
+    setLoading(false)
+
+    if (result.ok) {
+      setPassword('')
+      onLogin(result.session)
+      return
+    }
+    if (result.reason === 'invalid-credentials') setPassword('')
+    setError(loginErrorMessage(result.reason, result.retryAfterSeconds))
   }
 
   const borderCls = error ? 'border-bad/40' : 'border-line-strong'
 
   return (
     <div className="flex min-h-dvh flex-col bg-canvas">
-      <DevBanner />
-
       {/* Brand panel */}
       <div className="bg-navy-900 pt-[env(safe-area-inset-top)]">
         <div className="mx-auto w-full max-w-md px-6 pb-16 pt-8">
@@ -51,16 +65,26 @@ export default function Login({ onLogin }: { onLogin: (session: Session) => void
       <div className="mx-auto -mt-8 flex w-full max-w-md flex-1 flex-col px-4 pb-8">
         <form onSubmit={handleSubmit} noValidate className="rounded-2xl border border-line bg-white p-5 shadow-raised">
           <label className="block">
-            <span className="text-[13px] font-medium text-ink-soft">Employee ID or username</span>
+            <span className="text-[13px] font-medium text-ink-soft">Employee ID</span>
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              type="text"
+              name="username"
               autoComplete="username"
-              autoCapitalize="characters"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              maxLength={254}
               placeholder="EMP001"
+              aria-describedby="username-hint"
+              disabled={loading}
               aria-invalid={!!error}
               className={`mt-1.5 ${inputCls} ${borderCls}`}
             />
+            <span id="username-hint" className="mt-1.5 block text-[12px] text-ink-muted">
+              HR Admins: sign in with your work email.
+            </span>
           </label>
 
           <label className="mt-4 block">
@@ -72,6 +96,7 @@ export default function Login({ onLogin }: { onLogin: (session: Session) => void
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 placeholder="Your password"
+                disabled={loading}
                 aria-invalid={!!error}
                 className={`${inputCls} ${borderCls} pr-12`}
               />
@@ -107,18 +132,6 @@ export default function Login({ onLogin }: { onLogin: (session: Session) => void
             Forgot your password? Contact HR to reset it.
           </p>
         </form>
-
-        <div className="mt-auto pt-8">
-          <div className="rounded-lg border border-dashed border-accent/50 bg-accent-soft/60 px-4 py-3 text-[13px] text-ink-soft">
-            <p className="font-semibold text-ink">Demo accounts for development</p>
-            <div className="tnum mt-1.5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5">
-              <span className="text-ink-muted">Employee</span>
-              <span>EMP001 / demo123</span>
-              <span className="text-ink-muted">HR/Admin</span>
-              <span>HR001 / demo123</span>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   )

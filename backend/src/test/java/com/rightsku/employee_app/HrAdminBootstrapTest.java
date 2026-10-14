@@ -69,6 +69,7 @@ class HrAdminBootstrapTest {
         AppUser user = saved.getValue();
         assertThat(user.getEmail()).isEqualTo("hr@rightsku.com");
         assertThat(user.getRole()).isEqualTo(AppUser.ROLE_HR_ADMIN);
+        assertThat(user.getLoginId()).as("HR Admin signs in by email, no Employee ID").isNull();
         assertThat(user.isActive()).isTrue();
         assertThat(user.getPasswordHash()).startsWith("$2").isNotEqualTo(TEST_PASSWORD);
         assertThat(passwordEncoder.matches(TEST_PASSWORD, user.getPasswordHash())).isTrue();

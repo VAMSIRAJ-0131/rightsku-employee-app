@@ -1,19 +1,27 @@
 import { useState, type ReactNode } from 'react'
 import { Icon, type IconName } from '../../components/Icons'
 import {
-  AppHeader, Avatar, BottomNav, Button, Card, DevBanner, EmptyState, IconTile, List, ListRow,
+  AppHeader, Avatar, BottomNav, Button, Card, EmptyState, IconTile, List, ListRow,
   Notice, Page, Section, Segmented, SearchField, StatusBadge, Tag, TopBar, useToast,
 } from '../../components/ui'
-import {
-  auditLog, documents, employeeName, employees, leaves, timesheets, type DocType, type Employee,
-} from '../../data/sampleData'
+import type { DashboardData, DocType, Employee } from '../../data/types'
 import { firstName, formatDate, formatShortDate, greeting, plural } from '../../lib/format'
 
 type Tab = 'home' | 'approvals' | 'employees' | 'documents'
 type SubScreen = 'roles' | 'reports' | 'audit' | null
 type ApprovalView = 'timesheets' | 'leaves'
 
-export default function HrApp({ user, onLogout }: { user: Employee; onLogout: () => void }) {
+export default function HrApp({
+  user,
+  data,
+  onLogout,
+}: {
+  user: Employee
+  data: DashboardData
+  onLogout: () => void
+}) {
+  const { timesheets, leaves, documents, employees, auditLog } = data
+  const employeeName = (id: string) => employees.find((e) => e.id === id)?.name ?? id
   const [tab, setTab] = useState<Tab>('home')
   const [sub, setSub] = useState<SubScreen>(null)
   const [approvalView, setApprovalView] = useState<ApprovalView>('timesheets')
@@ -45,6 +53,9 @@ export default function HrApp({ user, onLogout }: { user: Employee; onLogout: ()
           <Notice>Changing roles arrives in Phase 3. From Phase 4 the server checks every permission.</Notice>
         </Section>
         <Section title="Accounts">
+          {employees.length === 0 ? (
+            <EmptyState icon="users" title="No accounts listed yet" message="Accounts appear here once employee management is connected." />
+          ) : (
           <List>
             {employees.map((e) => (
               <ListRow
@@ -61,6 +72,7 @@ export default function HrApp({ user, onLogout }: { user: Employee; onLogout: ()
               />
             ))}
           </List>
+          )}
         </Section>
       </>
     )
@@ -109,6 +121,9 @@ export default function HrApp({ user, onLogout }: { user: Employee; onLogout: ()
       <>
         <TopBar title="Audit log" subtitle="Important admin actions" onBack={() => setSub(null)} />
         <Section>
+          {auditLog.length === 0 ? (
+            <EmptyState icon="list" title="No actions recorded yet" message="Important admin actions will be listed here." />
+          ) : (
           <Card className="px-4 py-2">
             <ol className="relative">
               {auditLog.map((a, i) => (
@@ -127,6 +142,7 @@ export default function HrApp({ user, onLogout }: { user: Employee; onLogout: ()
               ))}
             </ol>
           </Card>
+          )}
         </Section>
       </>
     )
@@ -149,7 +165,6 @@ export default function HrApp({ user, onLogout }: { user: Employee; onLogout: ()
     ]
     screen = (
       <>
-        <DevBanner />
         <AppHeader
           right={
             <>
@@ -371,6 +386,9 @@ export default function HrApp({ user, onLogout }: { user: Employee; onLogout: ()
           <p className="mt-2 px-1 text-[12px] text-ink-muted">Every file is linked to one employee and one document type.</p>
         </Section>
         <Section title={`Recently uploaded (${documents.length})`}>
+          {documents.length === 0 ? (
+            <EmptyState icon="file" title="No documents uploaded yet" message="Uploaded documents will be listed here." />
+          ) : (
           <List>
             {documents.map((d) => (
               <ListRow
@@ -385,6 +403,7 @@ export default function HrApp({ user, onLogout }: { user: Employee; onLogout: ()
               />
             ))}
           </List>
+          )}
         </Section>
       </>
     )

@@ -1,0 +1,163 @@
+// Real sign-in against the Spring Boot backend: POST /api/auth/login.
+//
+// Employees sign in with their Employee ID (e.g. EMP001); HR Admins sign in
+// with their work email. Both go in the same "username" field; the backend
+// decides which lookup to use and accepts email only for HR Admins.
+//
+// Security notes:
+// - The JWT is returned to the caller and kept in React state (memory) only.
+//   It is never written to localStorage, sessionStorage, cookies or logs.
+// - Error results carry a reason code only, never response bodies, so no
+//   server details or tokens can end up on screen.
+import type { Employee, Role } from '../data/types'
+
+/**
+ * Where the API lives. Empty in development: the Vite dev server proxies
+ * /api to http://localhost:8080 (see vite.config.ts). For a build that runs
+ * elsewhere (e.g. the Android app), set VITE_API_BASE_URL at build time.
+ */
+const API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '')
+
+const LOGIN_TIMEOUT_MS = 15_000
+
+export interface AuthSession {
+  /** JWT for later API calls. Memory only; never displayed or stored. */
+  token: string
+  userId: number
+  /** Employee ID (null for HR Admins, who sign in by email). */
+  loginId: string | null
+  email: string
+  role: Role
+  /** What the dashboards show. Only fields the backend provides are filled. */
+  profile: Employee
+}
+
+export type LoginFailure =
+  | 'invalid-credentials' // 401: wrong ID/email or password, unknown or inactive account
+  | 'invalid-request' // 400: the server rejected the request body
+  | 'rate-limited' // 429: too many failed sign-ins; wait before trying again
+  | 'network' // no response: offline, server unreachable, or timed out
+  | 'server' // 5xx: server error (also what the dev proxy returns if the backend is stopped)
+  | 'unexpected-response' // any other status, or a response missing required fields
+
+export type LoginResult =
+  | { ok: true; session: AuthSession }
+  | { ok: false; reason: LoginFailure; retryAfterSeconds?: number }
+
+/** Backend role names mapped to the frontend's dashboard roles. Unknown roles are refused. */
+export function mapBackendRole(role: unknown): Role | null {
+  if (role === 'HR_ADMIN') return 'hr'
+  if (role === 'EMPLOYEE') return 'employee'
+  return null
+}
+
+/**
+ * Builds the dashboard profile from the login response. The backend does not
+ * send name, department, etc. yet, so those stay empty rather than invented.
+ */
+export function profileFromAuth(userId: number, loginId: string | null, email: string, role: Role): Employee {
+  return {
+    id: loginId ?? `USER-${userId}`,
+    name: email,
+    department: '',
+    designation: role === 'hr' ? 'HR Admin' : '',
+    joiningDate: '',
+    email,
+    phone: '',
+    location: '',
+    manager: '',
+    active: true,
+    role,
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+/** Checks the shape of a successful login response and turns it into a session. */
+export function parseLoginResponse(data: unknown): AuthSession | null {
+  if (!isRecord(data)) return null
+  const { token, email, userId, role, loginId } = data
+  const mappedRole = mapBackendRole(role)
+  if (typeof token !== 'string' || token.length === 0) return null
+  if (typeof email !== 'string' || email.length === 0) return null
+  if (typeof userId !== 'number' || !Number.isFinite(userId)) return null
+  if (!mappedRole) return null
+  if (loginId !== undefined && loginId !== null && typeof loginId !== 'string') return null
+  const id = typeof loginId === 'string' && loginId.length > 0 ? loginId : null
+  // Employees always have an Employee ID; refuse a response that says otherwise.
+  if (mappedRole === 'employee' && !id) return null
+  return {
+    token,
+    userId,
+    loginId: id,
+    email,
+    role: mappedRole,
+    profile: profileFromAuth(userId, id, email, mappedRole),
+  }
+}
+
+/** username: Employee ID for employees, or work email for HR Admins. */
+export async function login(username: string, password: string): Promise<LoginResult> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS)
+
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ username, password }),
+      credentials: 'omit',
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+  } catch {
+    return { ok: false, reason: 'network' }
+  } finally {
+    window.clearTimeout(timer)
+  }
+
+  if (response.status === 401) return { ok: false, reason: 'invalid-credentials' }
+  if (response.status === 400) return { ok: false, reason: 'invalid-request' }
+  if (response.status === 429) {
+    const seconds = Number(response.headers.get('Retry-After'))
+    return {
+      ok: false,
+      reason: 'rate-limited',
+      retryAfterSeconds: Number.isFinite(seconds) && seconds > 0 ? seconds : undefined,
+    }
+  }
+  if (response.status >= 500) return { ok: false, reason: 'server' }
+  if (!response.ok) return { ok: false, reason: 'unexpected-response' }
+
+  let data: unknown
+  try {
+    data = await response.json()
+  } catch {
+    return { ok: false, reason: 'unexpected-response' }
+  }
+
+  const session = parseLoginResponse(data)
+  return session ? { ok: true, session } : { ok: false, reason: 'unexpected-response' }
+}
+
+/** Plain-language messages for each failure. They never include server text. */
+export const LOGIN_ERROR_MESSAGES: Record<LoginFailure, string> = {
+  'invalid-credentials': 'That Employee ID and password don’t match. Check both and try again.',
+  'invalid-request': 'Enter your Employee ID and password.',
+  'rate-limited': 'Too many sign-in attempts. Wait a few minutes, then try again.',
+  network: 'Can’t connect to RIGHTSKU. Check your internet connection and try again.',
+  server: 'Sign-in is temporarily unavailable. Try again in a few minutes.',
+  'unexpected-response': 'Something went wrong while signing in. Try again.',
+}
+
+/** Error text for a failed sign-in, including the wait time when the server gives one. */
+export function loginErrorMessage(reason: LoginFailure, retryAfterSeconds?: number): string {
+  if (reason === 'rate-limited' && retryAfterSeconds) {
+    const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60))
+    return `Too many sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`
+  }
+  return LOGIN_ERROR_MESSAGES[reason]
+}

@@ -8,6 +8,9 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
 
     Optional<AppUser> findByEmailIgnoreCase(String email);
 
+    /** Employee ID lookup; case-insensitive, matching the UPPER(login_id) unique index. */
+    Optional<AppUser> findByLoginIdIgnoreCase(String loginId);
+
     boolean existsByEmailIgnoreCase(String email);
 
     boolean existsByRole(String role);

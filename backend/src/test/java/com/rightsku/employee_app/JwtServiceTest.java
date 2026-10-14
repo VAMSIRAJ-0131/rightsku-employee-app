@@ -22,8 +22,10 @@ class JwtServiceTest {
 
     private final JwtService jwtService = new JwtService(TEST_SECRET, Duration.ofHours(8));
 
+    /** Employees get an Employee ID; HR Admins sign in by email and have none. */
     static AppUser user(long id, String email, String role) {
-        AppUser user = AppUser.create(email, "not-a-real-hash", role);
+        String loginId = AppUser.ROLE_EMPLOYEE.equals(role) ? "EMP" + id : null;
+        AppUser user = AppUser.create(loginId, email, "not-a-real-hash", role);
         ReflectionTestUtils.setField(user, "id", id);
         return user;
     }
@@ -34,11 +36,24 @@ class JwtServiceTest {
 
         Jwt jwt = jwtService.jwtDecoderFromConfiguredSecret().decode(token);
 
-        assertThat(jwt.getSubject()).isEqualTo("hr@rightsku.com");
+        // Subject is the stable internal user ID, not the email.
+        assertThat(jwt.getSubject()).isEqualTo("7");
         assertThat(jwt.getClaimAsString("role")).isEqualTo("HR_ADMIN");
+        assertThat(jwt.hasClaim("loginId")).isFalse();
         assertThat(((Number) jwt.getClaim("userId")).longValue()).isEqualTo(7L);
         assertThat(jwt.getClaimAsString("iss")).isEqualTo(JwtService.ISSUER);
         assertThat(Duration.between(jwt.getIssuedAt(), jwt.getExpiresAt())).isEqualTo(Duration.ofHours(8));
+    }
+
+    @Test
+    void employeeTokenCarriesEmployeeId() {
+        String token = jwtService.generateToken(user(12L, "emp@rightsku.com", AppUser.ROLE_EMPLOYEE));
+
+        Jwt jwt = jwtService.jwtDecoderFromConfiguredSecret().decode(token);
+
+        assertThat(jwt.getSubject()).isEqualTo("12");
+        assertThat(jwt.getClaimAsString("loginId")).isEqualTo("EMP12");
+        assertThat(jwt.getClaimAsString("role")).isEqualTo("EMPLOYEE");
     }
 
     @Test
@@ -56,7 +71,7 @@ class JwtServiceTest {
         String[] parts = token.split("\\.");
         // Swap the payload for one that claims HR_ADMIN, keeping the old signature.
         String forgedPayload = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
-                "{\"sub\":\"a@rightsku.com\",\"role\":\"HR_ADMIN\",\"iss\":\"rightsku-employee-app\"}".getBytes());
+                "{\"sub\":\"1\",\"role\":\"HR_ADMIN\",\"iss\":\"rightsku-employee-app\"}".getBytes());
         String forged = parts[0] + "." + forgedPayload + "." + parts[2];
 
         JwtDecoder decoder = jwtService.jwtDecoderFromConfiguredSecret();

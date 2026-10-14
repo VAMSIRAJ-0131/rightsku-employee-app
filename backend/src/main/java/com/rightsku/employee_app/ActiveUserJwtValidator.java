@@ -27,12 +27,15 @@ public class ActiveUserJwtValidator implements OAuth2TokenValidator<Jwt> {
 
     @Override
     public OAuth2TokenValidatorResult validate(Jwt jwt) {
-        String email = jwt.getSubject();
-        if (email == null || email.isBlank()) {
+        // The subject is the internal user ID (see JwtService).
+        Long userId;
+        try {
+            userId = Long.valueOf(jwt.getSubject());
+        } catch (NumberFormatException | NullPointerException ex) {
             return OAuth2TokenValidatorResult.failure(INVALID);
         }
 
-        Optional<AppUser> user = appUserRepository.findByEmailIgnoreCase(email);
+        Optional<AppUser> user = appUserRepository.findById(userId);
         boolean valid = user.isPresent()
                 && user.get().isActive()
                 && user.get().getRole().equals(jwt.getClaimAsString("role"));

@@ -5,7 +5,7 @@ Android employee app for RIGHTSKU Solutions Private Limited, with Employee and H
 | Folder | What it is | Status |
 |---|---|---|
 | `frontend/` | The app screens (React + TypeScript + Vite + Tailwind CSS) | Phase 1 done |
-| `backend/` | Spring Boot + PostgreSQL server | Comes in Phase 4 |
+| `backend/` | Spring Boot + PostgreSQL server (login API) | In progress |
 
 ## Run the app on your computer
 
@@ -20,14 +20,25 @@ Android employee app for RIGHTSKU Solutions Private Limited, with Employee and H
 3. Open the address shown (usually http://localhost:5173) in Chrome.
 4. To see it at phone size: press **F12**, then click the phone icon at the top-left of the panel.
 
-## Demo logins (development only, sample data)
+## Signing in
 
-| Role | Employee ID | Password |
-|---|---|---|
-| Employee | EMP001 | demo123 |
-| HR/Admin | HR001 | demo123 |
+Sign-in uses the real backend (`POST /api/auth/login`). There are no demo accounts.
 
-These are fake accounts for showing the screens. Real secure login comes in Phase 4.
+- **Employees** sign in with their **Employee ID** (for example `EMP001`) and password.
+- **HR Admins** sign in with their **work email** and password.
+
+To sign in during development:
+
+1. Start PostgreSQL and the backend (`cd backend`, then `.\mvnw.cmd spring-boot:run`).
+2. Start the frontend with `npm run dev`. The dev server forwards `/api` to
+   `http://localhost:8080`.
+3. Sign in with an existing account, for example the HR Admin created by the
+   one-time bootstrap (email sign-in). Never put passwords in this file or in the code.
+
+The app contains no sample data. Dashboard sections stay empty until their backend APIs are connected.
+
+Details, Employee ID rules, login rate limiting and the changes still required
+before employee accounts can be created: [docs/authentication.md](docs/authentication.md).
 
 ## Check that the project builds
 

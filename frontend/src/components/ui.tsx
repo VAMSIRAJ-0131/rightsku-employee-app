@@ -2,7 +2,7 @@
 // whole app looks and behaves the same way.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon, type IconName } from './Icons'
-import type { Status } from '../data/sampleData'
+import type { Status } from '../data/types'
 import { initials } from '../lib/format'
 
 /* ---------- Layout ---------- */
@@ -199,7 +199,11 @@ export function DetailRow({ icon, label, value }: { icon?: IconName; label: stri
     <div className="flex min-h-13 items-center gap-3 px-4 py-3">
       {icon && <Icon name={icon} className="h-[18px] w-[18px] shrink-0 text-mist-500" />}
       <span className="text-[14px] text-ink-muted">{label}</span>
-      <span className="ml-auto truncate pl-3 text-right text-[14px] font-medium text-ink">{value}</span>
+      {value ? (
+        <span className="ml-auto truncate pl-3 text-right text-[14px] font-medium text-ink">{value}</span>
+      ) : (
+        <span className="ml-auto pl-3 text-right text-[13px] text-ink-muted">Not on file yet</span>
+      )}
     </div>
   )
 }
@@ -255,15 +259,6 @@ export function EmptyState({ icon, title, message }: { icon: IconName; title: st
       <p className="mt-3 text-[15px] font-semibold text-ink">{title}</p>
       <p className="mt-1 max-w-64 text-[13px] text-ink-muted">{message}</p>
     </Card>
-  )
-}
-
-export function DevBanner() {
-  return (
-    <div className="flex items-center justify-center gap-1.5 bg-navy-950 px-4 py-1 text-[11px] font-medium text-mist-300">
-      <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-      Development demo with sample data
-    </div>
   )
 }
 

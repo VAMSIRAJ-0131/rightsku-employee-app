@@ -1,14 +1,13 @@
 import { useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icons'
 import {
-  AppHeader, Avatar, BottomNav, Button, Card, CardButton, DetailRow, DevBanner, EmptyState,
+  AppHeader, Avatar, BottomNav, Button, Card, CardButton, DetailRow, EmptyState,
   FilterChips, IconButton, IconTile, List, ListRow, Notice, Page, ProgressBar, Section,
   Segmented, StatusBadge, Tag, TopBar, useToast,
 } from '../../components/ui'
-import {
-  documents, leaveBalance, leaves, notifications, timesheets,
-  type DocType, type Employee, type EmployeeDocument,
-} from '../../data/sampleData'
+import type {
+  DashboardData, DocType, Employee, EmployeeDocument, LeaveBalance, LeaveRequest, Timesheet,
+} from '../../data/types'
 import {
   currentWorkWeek, firstName, formatDate, formatShortDate, greeting, monthLabel, plural, toIsoDate,
 } from '../../lib/format'
@@ -19,7 +18,16 @@ type DocFilter = 'All' | DocType
 
 const DOWNLOAD_MSG = 'Downloads open once the secure backend is connected in Phase 4.'
 
-export default function EmployeeApp({ user, onLogout }: { user: Employee; onLogout: () => void }) {
+export default function EmployeeApp({
+  user,
+  data,
+  onLogout,
+}: {
+  user: Employee
+  data: DashboardData
+  onLogout: () => void
+}) {
+  const { timesheets, leaves, documents, notifications, leaveBalance } = data
   const [tab, setTab] = useState<Tab>('home')
   const [sub, setSub] = useState<SubScreen>(null)
   const [requestsView, setRequestsView] = useState<'timesheets' | 'leaves'>('timesheets')
@@ -77,6 +85,9 @@ export default function EmployeeApp({ user, onLogout }: { user: Employee; onLogo
       <>
         <TopBar title="Leave" subtitle="Balance and applications" onBack={() => setSub(null)} />
         <Section title="Balance">
+          {leaveBalance.length === 0 ? (
+            <Notice>Your leave balance will appear here once HR sets it up.</Notice>
+          ) : (
           <Card className="divide-y divide-line">
             {leaveBalance.map((b) => (
               <div key={b.type} className="px-4 py-3.5">
@@ -90,6 +101,7 @@ export default function EmployeeApp({ user, onLogout }: { user: Employee; onLogo
               </div>
             ))}
           </Card>
+          )}
         </Section>
         <Section title="Apply for leave">
           <Notice>The application form for leave type, dates and reason arrives in Phase 2.</Notice>
@@ -169,6 +181,7 @@ export default function EmployeeApp({ user, onLogout }: { user: Employee; onLogo
         pendingTsCount={pendingTs.length}
         pendingLeaveCount={pendingLeaves.length}
         payslips={payslips}
+        leaveBalance={leaveBalance}
         onOpen={setSub}
         onOpenDocs={openDocs}
         onOpenRequests={openRequests}
@@ -274,16 +287,17 @@ export default function EmployeeApp({ user, onLogout }: { user: Employee; onLogo
 /* ---------- Home dashboard ---------- */
 
 function HomeScreen({
-  user, unread, myTimesheets, myDocs, pendingTsCount, pendingLeaveCount, payslips,
+  user, unread, myTimesheets, myDocs, pendingTsCount, pendingLeaveCount, payslips, leaveBalance,
   onOpen, onOpenDocs, onOpenRequests, onDownload,
 }: {
   user: Employee
   unread: number
-  myTimesheets: typeof timesheets
+  myTimesheets: Timesheet[]
   myDocs: EmployeeDocument[]
   pendingTsCount: number
   pendingLeaveCount: number
   payslips: EmployeeDocument[]
+  leaveBalance: LeaveBalance[]
   onOpen: (s: SubScreen) => void
   onOpenDocs: (f: DocFilter) => void
   onOpenRequests: (v: 'timesheets' | 'leaves') => void
@@ -304,17 +318,19 @@ function HomeScreen({
       ? `${plural(rejectedTs, 'timesheet')} rejected, needs changes`
       : pendingTsCount > 0
         ? `${plural(pendingTsCount, 'timesheet')} awaiting approval`
-        : 'All timesheets approved'
+        : myTimesheets.length === 0
+          ? 'No timesheets submitted yet'
+          : 'All timesheets approved'
 
-  const keyDocs: { type: DocType; label: string }[] = [
-    { type: 'Offer Letter', label: 'Offer letter' },
-    { type: 'Experience Letter', label: 'Experience letter' },
-    { type: 'Form 16', label: 'Form 16' },
+  // "pending" explains when HR issues each document if it isn't uploaded yet.
+  const keyDocs: { type: DocType; label: string; pending: string }[] = [
+    { type: 'Offer Letter', label: 'Offer letter', pending: 'Not uploaded yet' },
+    { type: 'Experience Letter', label: 'Experience letter', pending: 'Issued when you leave' },
+    { type: 'Form 16', label: 'Form 16', pending: 'Issued after each financial year' },
   ]
 
   return (
     <>
-      <DevBanner />
       <AppHeader
         right={
           <>
@@ -391,7 +407,9 @@ function HomeScreen({
           <CardButton onClick={() => onOpen('leave')} className="flex flex-col p-4" label="Leave">
             <IconTile icon="calendar" />
             <p className="mt-3 text-[15px] font-semibold text-ink">Leave</p>
-            <p className="tnum text-[13px] text-ink-muted">{totalLeft} days available</p>
+            <p className="tnum text-[13px] text-ink-muted">
+              {leaveBalance.length ? `${totalLeft} days available` : 'Balance not set up yet'}
+            </p>
             <div className="mt-auto space-y-2 pt-4">
               {leaveBalance.map((b) => (
                 <div key={b.type}>
@@ -425,14 +443,14 @@ function HomeScreen({
       {/* Key documents */}
       <Section title="Your documents" action={<TextLink onClick={() => onOpenDocs('All')}>View all</TextLink>}>
         <List>
-          {keyDocs.map(({ type, label }) => {
+          {keyDocs.map(({ type, label, pending }) => {
             const doc = myDocs.find((d) => d.type === type)
             return (
               <ListRow
                 key={type}
                 icon="file"
                 title={label}
-                subtitle={doc ? `Issued ${formatDate(doc.issuedOn)}` : 'Issued on exit'}
+                subtitle={doc ? `Issued ${formatDate(doc.issuedOn)}` : pending}
                 onClick={() => onOpenDocs(type)}
                 right={
                   doc ? (
@@ -502,7 +520,7 @@ function TextLink({ children, onClick }: { children: ReactNode; onClick: () => v
   )
 }
 
-function TimesheetList({ items }: { items: typeof timesheets }) {
+function TimesheetList({ items }: { items: Timesheet[] }) {
   if (items.length === 0)
     return <EmptyState icon="clock" title="No timesheets yet" message="Entries you submit will appear here with their approval status." />
   return (
@@ -528,7 +546,7 @@ function TimesheetList({ items }: { items: typeof timesheets }) {
   )
 }
 
-function LeaveList({ items }: { items: typeof leaves }) {
+function LeaveList({ items }: { items: LeaveRequest[] }) {
   if (items.length === 0)
     return <EmptyState icon="calendar" title="No leave applications" message="Applications you submit will appear here with their status." />
   return (

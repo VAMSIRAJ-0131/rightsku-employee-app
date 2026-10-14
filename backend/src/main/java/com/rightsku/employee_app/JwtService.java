@@ -73,19 +73,22 @@ public class JwtService {
     public String generateToken(AppUser user) {
         Instant now = clock.instant();
 
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        // Subject is the internal user ID: it never changes, unlike email or Employee ID.
+        JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
                 .issuer(ISSUER)
                 .issuedAt(now)
                 .expiresAt(now.plus(expiration))
-                .subject(user.getEmail())
+                .subject(String.valueOf(user.getId()))
                 .claim("userId", user.getId())
-                .claim("role", user.getRole())
-                .build();
+                .claim("role", user.getRole());
+        if (user.getLoginId() != null) {
+            claims.claim("loginId", user.getLoginId());
+        }
 
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
 
         return jwtEncoder.encode(
-                JwtEncoderParameters.from(header, claims))
+                JwtEncoderParameters.from(header, claims.build()))
                 .getTokenValue();
     }
 
