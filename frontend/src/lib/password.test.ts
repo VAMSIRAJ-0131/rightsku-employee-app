@@ -4,24 +4,30 @@ import { parseLoginResponse } from './auth'
 
 // Test-only values.
 const TEMP = 'Temporary-Passw0rd!'
-const NEW = '48271936'
+const NEW = 'Vamsi@90'
 const TOKEN = 'test-only-token'
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('validatePasswordChange (employees: exactly 8 digits)', () => {
-  it('accepts 8 digits typed twice', () => {
-    expect(validatePasswordChange({ currentPassword: TEMP, newPassword: NEW, confirmPassword: NEW })).toEqual({})
-    expect(validatePasswordChange({ currentPassword: TEMP, newPassword: '00000000', confirmPassword: '00000000' })).toEqual({})
+describe('validatePasswordChange (employees: at least 8 characters)', () => {
+  it('accepts 8 characters with letters and symbols, longer passwords and digits only', () => {
+    for (const ok of ['Vamsi@90', 'Welcome@123', 'a much longer pass phrase!', '48271936']) {
+      expect(validatePasswordChange({ currentPassword: TEMP, newPassword: ok, confirmPassword: ok }), ok).toEqual({})
+    }
   })
 
-  it('refuses anything that is not exactly 8 digits, with the agreed message', () => {
-    for (const bad of ['1234567', '123456789', '1234567a', '1234-678', '1234 678', ' 12345678', '１２３４５６７８', 'My-Own-Passw0rd!', '']) {
-      const errors = validatePasswordChange({ currentPassword: TEMP, newPassword: bad, confirmPassword: bad })
-      expect(errors.newPassword, bad).toBe('Password must contain exactly 8 digits.')
+  it('refuses passwords shorter than 8 characters, with the agreed message', () => {
+    for (const short of ['Vams@90', '1234567', 'abc', '', '        ']) {
+      const errors = validatePasswordChange({ currentPassword: TEMP, newPassword: short, confirmPassword: short })
+      expect(errors.newPassword, `'${short}'`).toBe('Password must contain at least 8 characters.')
     }
+  })
+
+  it('still refuses leading or trailing spaces', () => {
+    expect(validatePasswordChange({ currentPassword: TEMP, newPassword: ' Vamsi@90', confirmPassword: ' Vamsi@90' }).newPassword)
+      .toBeDefined()
   })
 
   it('requires the current password', () => {
@@ -34,7 +40,7 @@ describe('validatePasswordChange (employees: exactly 8 digits)', () => {
   })
 
   it('requires the confirmation and that both match', () => {
-    expect(Object.keys(validatePasswordChange({ currentPassword: TEMP, newPassword: NEW, confirmPassword: '48271937' })))
+    expect(Object.keys(validatePasswordChange({ currentPassword: TEMP, newPassword: NEW, confirmPassword: 'Vamsi@91' })))
       .toEqual(['confirmPassword'])
     expect(Object.keys(validatePasswordChange({ currentPassword: TEMP, newPassword: NEW, confirmPassword: '' })))
       .toEqual(['confirmPassword'])
@@ -42,7 +48,7 @@ describe('validatePasswordChange (employees: exactly 8 digits)', () => {
 })
 
 describe('validatePasswordChange (HR Admins keep the longer rule)', () => {
-  it('needs at least 12 characters, not 8 digits', () => {
+  it('needs at least 12 characters', () => {
     expect(validatePasswordChange({ currentPassword: TEMP, newPassword: NEW, confirmPassword: NEW }, 'hr').newPassword)
       .toBe('Use at least 12 characters.')
     const ok = 'Hr-New-Passw0rd-2026'

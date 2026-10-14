@@ -339,7 +339,7 @@ export default function EmployeeApp({
         </Section>
         <Section title="Security">
           <List>
-            <ListRow icon="lock" title="Change password" subtitle="8 digits" onClick={() => setSub('password')} />
+            <ListRow icon="lock" title="Change password" subtitle="At least 8 characters" onClick={() => setSub('password')} />
           </List>
         </Section>
         <Section>

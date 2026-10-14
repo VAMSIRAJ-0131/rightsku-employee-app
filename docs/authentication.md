@@ -86,8 +86,9 @@ HR Admins create employees through `POST /api/hr/employees`. The service:
   sign-in rate limit). The new password must be typed twice
   (`confirmPassword`), be different from the current one and follow
   `PasswordPolicy`:
-  - **Employees:** exactly 8 digits (0-9); no letters, symbols or spaces
-    ("Password must contain exactly 8 digits.").
+  - **Employees:** at least 8 characters; letters, numbers and special
+    characters are all allowed ("Password must contain at least 8
+    characters."). No leading or trailing spaces; at most 72 bytes.
   - **HR Admins:** at least 12 characters (unchanged).
   On success (204) the flag is cleared and the account's `session_version`
   goes up. Employees can also change their password later from Profile.

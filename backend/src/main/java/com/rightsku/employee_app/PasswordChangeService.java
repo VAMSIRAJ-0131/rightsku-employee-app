@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>The current password must be correct. Wrong guesses are limited by
  *       {@link LoginRateLimiter}, like sign-in.</li>
  *   <li>The new password must follow {@link PasswordPolicy} (employees:
- *       exactly 8 digits; HR Admins: at least 12 characters), be typed the
+ *       at least 8 characters; HR Admins: at least 12 characters), be typed the
  *       same twice, and differ from the current one.</li>
  *   <li>On success the password is stored only as a BCrypt hash, the
  *       "must change" flag is cleared and the session version increases, so
@@ -80,6 +80,8 @@ public class PasswordChangeService {
         users.saveAndFlush(user);
         rateLimiter.recordSuccess(address, limiterKey);
         audit.save(AuditEntry.of(user.getId(), "PASSWORD_CHANGED", "USER", String.valueOf(user.getId())));
+        // Server log only (never the password): confirms the new hash was written.
+        log.info("Password changed for user {}; older sessions have ended.", user.getId());
     }
 
     /** BCrypt only reads 72 bytes; longer input can never match and must not reach the encoder. */

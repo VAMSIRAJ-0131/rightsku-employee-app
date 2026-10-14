@@ -28,7 +28,7 @@ class PasswordChangeServiceTest {
 
     // Test-only values.
     private static final String TEMPORARY = "Temporary-Passw0rd!";
-    private static final String CHOSEN = "48271936"; // employees choose exactly 8 digits
+    private static final String CHOSEN = "Vamsi@90"; // employees: at least 8 characters, any kind
     private static final String ADDRESS = "203.0.113.5";
     private static final Instant NOW = Instant.parse("2026-10-14T06:30:00Z");
 
@@ -99,30 +99,47 @@ class PasswordChangeServiceTest {
     }
 
     @Test
-    void employeeNewPasswordMustBeExactlyEightDigits() {
-        String[] invalid = {
-            "1234567",          // 7 digits
-            "123456789",        // 9 digits
-            "1234567a",         // a letter
-            "1234-678",         // a symbol
-            "1234 678",         // a space
-            " 12345678",        // leading space
-            "１２３４５６７８",   // full-width digits, not 0-9
-            "My-Own-New-Passw0rd", // the old long rule is not enough for employees
-        };
-        for (String weak : invalid) {
-            Throwable thrown = catchThrowable(() -> service.changePassword(2L, req(TEMPORARY, weak), ADDRESS));
+    void employeePasswordShorterThanEightCharactersIsRefused() {
+        for (String tooShort : new String[] {"Vams@90", "1234567", "abc", "", "       "}) {
+            Throwable thrown = catchThrowable(() -> service.changePassword(2L, req(TEMPORARY, tooShort), ADDRESS));
             assertApiError(thrown, HttpStatus.BAD_REQUEST, "newPassword");
-            assertThat(thrown).as(weak).hasMessage("Password must contain exactly 8 digits.");
+            assertThat(thrown).as("'" + tooShort + "'").hasMessage("Password must contain at least 8 characters.");
         }
         assertThat(employee.isMustChangePassword()).isTrue();
         verify(users, never()).saveAndFlush(any());
     }
 
     @Test
+    void eightCharactersWithLettersAndSymbolsAreAccepted() {
+        service.changePassword(2L, req(TEMPORARY, "Vamsi@90"), ADDRESS);
+
+        assertThat(encoder.matches("Vamsi@90", employee.getPasswordHash())).isTrue();
+        assertThat(employee.isMustChangePassword()).isFalse();
+        verify(users).saveAndFlush(employee);
+    }
+
+    @Test
+    void longerPasswordsAndDigitsOnlyAreAccepted() {
+        service.changePassword(2L, req(TEMPORARY, "Welcome@123"), ADDRESS);
+        assertThat(encoder.matches("Welcome@123", employee.getPasswordHash())).isTrue();
+
+        service.changePassword(2L, req("Welcome@123", "48271936"), ADDRESS);
+        assertThat(encoder.matches("48271936", employee.getPasswordHash())).isTrue();
+    }
+
+    @Test
+    void leadingSpacesAndOverlongPasswordsAreStillRefused() {
+        for (String bad : new String[] {" Vamsi@90", "Vamsi@90 ", "é".repeat(40)}) {
+            Throwable thrown = catchThrowable(() -> service.changePassword(2L, req(TEMPORARY, bad), ADDRESS));
+            assertApiError(thrown, HttpStatus.BAD_REQUEST, "newPassword");
+        }
+        verify(users, never()).saveAndFlush(any());
+    }
+
+    @Test
     void bothNewPasswordsMustMatch() {
         Throwable thrown = catchThrowable(() ->
-                service.changePassword(2L, new ChangePasswordRequest(TEMPORARY, CHOSEN, "48271937"), ADDRESS));
+                service.changePassword(2L, new ChangePasswordRequest(TEMPORARY, CHOSEN, "Vamsi@91"), ADDRESS));
 
         assertApiError(thrown, HttpStatus.BAD_REQUEST, "confirmPassword");
         assertThat(employee.isMustChangePassword()).isTrue();
@@ -143,11 +160,11 @@ class PasswordChangeServiceTest {
     void employeeCanChangePasswordAgainLaterWithTheSameRule() {
         service.changePassword(2L, req(TEMPORARY, CHOSEN), ADDRESS);
 
-        service.changePassword(2L, req(CHOSEN, "90817263"), ADDRESS);
+        service.changePassword(2L, req(CHOSEN, "Welcome@123"), ADDRESS);
 
-        assertThat(encoder.matches("90817263", employee.getPasswordHash())).isTrue();
+        assertThat(encoder.matches("Welcome@123", employee.getPasswordHash())).isTrue();
         assertThat(employee.getSessionVersion()).isEqualTo(2);
-        Throwable thrown = catchThrowable(() -> service.changePassword(2L, req("90817263", "abc"), ADDRESS));
+        Throwable thrown = catchThrowable(() -> service.changePassword(2L, req("Welcome@123", "abc"), ADDRESS));
         assertApiError(thrown, HttpStatus.BAD_REQUEST, "newPassword");
     }
 

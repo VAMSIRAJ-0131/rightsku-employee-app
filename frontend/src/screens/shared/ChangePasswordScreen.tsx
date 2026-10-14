@@ -3,13 +3,14 @@
 //   password. Nothing else in the app is reachable until a new password is
 //   set (the server refuses every other request made with this session too).
 // - voluntary: an employee changes their password later from Profile.
-// Employees choose exactly 8 digits; the new password is typed twice.
+// Employees choose at least 8 characters (letters, numbers and symbols are
+// all allowed); the new password is typed twice.
 import { useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icons'
 import { Button, Card, Notice, Page, Section, Spinner, TopBar } from '../../components/ui'
 import type { Role } from '../../data/types'
 import {
-  EMPLOYEE_PASSWORD_DIGITS, MIN_PASSWORD_LENGTH, changePassword, validatePasswordChange,
+  EMPLOYEE_MIN_LENGTH, MIN_PASSWORD_LENGTH, changePassword, validatePasswordChange,
   type PasswordFormErrors, type PasswordFormValues,
 } from '../../lib/password'
 
@@ -76,11 +77,9 @@ export default function ChangePasswordScreen({
     setFormError(Object.keys(fieldErrors).length ? null : result.error.message)
   }
 
-  const digitsOnly = role === 'employee'
   const required = mode === 'required'
-  const newHint = digitsOnly
-    ? `Exactly ${EMPLOYEE_PASSWORD_DIGITS} digits (0–9), different from your current password.`
-    : `At least ${MIN_PASSWORD_LENGTH} characters, different from your current password.`
+  const minLength = role === 'employee' ? EMPLOYEE_MIN_LENGTH : MIN_PASSWORD_LENGTH
+  const newHint = `At least ${minLength} characters. Letters, numbers and symbols are allowed. Must be different from your current password.`
 
   const content = (
     <>
@@ -121,7 +120,6 @@ export default function ChangePasswordScreen({
               error={errors.newPassword}
               autoComplete="new-password"
               hint={newHint}
-              digitsOnly={digitsOnly}
               show={show}
             />
             <PasswordField
@@ -130,7 +128,6 @@ export default function ChangePasswordScreen({
               onChange={set('confirmPassword')}
               error={errors.confirmPassword}
               autoComplete="new-password"
-              digitsOnly={digitsOnly}
               show={show}
             />
             <label className="flex items-center gap-2 text-[13px] text-ink-soft">
@@ -170,7 +167,7 @@ export default function ChangePasswordScreen({
 }
 
 function PasswordField({
-  label, value, onChange, error, hint, autoComplete, show, digitsOnly = false,
+  label, value, onChange, error, hint, autoComplete, show,
 }: {
   label: string
   value: string
@@ -179,8 +176,6 @@ function PasswordField({
   hint?: string
   autoComplete: string
   show: boolean
-  /** Number keypad on phones and at most 8 characters. The rule itself is checked on submit. */
-  digitsOnly?: boolean
 }) {
   const id = `pw-${label.replace(/\W+/g, '-').toLowerCase()}`
   return (
@@ -192,8 +187,6 @@ function PasswordField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         autoComplete={autoComplete}
-        inputMode={digitsOnly ? 'numeric' : undefined}
-        maxLength={digitsOnly ? EMPLOYEE_PASSWORD_DIGITS : undefined}
         aria-invalid={!!error}
         aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
         className={`mt-1.5 h-12 w-full rounded-lg border bg-white px-4 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${

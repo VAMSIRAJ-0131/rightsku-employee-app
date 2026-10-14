@@ -4,10 +4,12 @@
 import { apiRequest, type ApiResult } from './api'
 import type { Role } from '../data/types'
 
-/** Employees choose exactly 8 digits (same rule as the backend PasswordPolicy). */
-export const EMPLOYEE_PASSWORD_DIGITS = 8
-export const EMPLOYEE_PASSWORD_MESSAGE = 'Password must contain exactly 8 digits.'
-const EMPLOYEE_PASSWORD = /^[0-9]{8}$/
+/**
+ * Employees choose at least 8 characters; letters, numbers and special
+ * characters are all allowed (same rule as the backend PasswordPolicy).
+ */
+export const EMPLOYEE_MIN_LENGTH = 8
+export const EMPLOYEE_PASSWORD_MESSAGE = 'Password must contain at least 8 characters.'
 
 /** HR Admins keep the longer rule. */
 export const MIN_PASSWORD_LENGTH = 12
@@ -23,10 +25,15 @@ export type PasswordFormErrors = Partial<Record<keyof PasswordFormValues, string
 
 /** The message for a new password that breaks the rule for this role, if any. */
 export function newPasswordProblem(password: string, role: Role): string | undefined {
-  if (role === 'employee') return EMPLOYEE_PASSWORD.test(password) ? undefined : EMPLOYEE_PASSWORD_MESSAGE
-  if (!password) return 'Choose a new password.'
+  if (role === 'employee') {
+    // Count characters, not UTF-16 units, like the server does.
+    if (!password.trim() || Array.from(password).length < EMPLOYEE_MIN_LENGTH) return EMPLOYEE_PASSWORD_MESSAGE
+  } else {
+    if (!password) return 'Choose a new password.'
+    if (password !== password.trim()) return 'The password can’t start or end with a space.'
+    if (password.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters.`
+  }
   if (password !== password.trim()) return 'The password can’t start or end with a space.'
-  if (password.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters.`
   if (new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES) return 'This password is too long.'
   return undefined
 }
