@@ -1,7 +1,6 @@
 package com.rightsku.employee_app;
 
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,11 +19,9 @@ public class RoleProbeTestConfig {
     public static final String HR_PROBE = "/api/hr/probe";
     public static final String EMPLOYEE_PROBE = "/api/employee/probe";
 
-    @Bean
-    RoleProbeController roleProbeController() {
-        return new RoleProbeController();
-    }
-
+    // No @Bean method here: Spring registers this nested @RestController
+    // automatically when RoleProbeTestConfig is imported. Adding a @Bean as
+    // well registered it twice ("Ambiguous mapping: GET /api/hr/probe").
     @RestController
     static class RoleProbeController {
 
