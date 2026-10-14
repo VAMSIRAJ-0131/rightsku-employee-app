@@ -9,7 +9,7 @@ import type { ApiError } from '../../lib/api'
 import { formatShortDate, monthLabel, toIsoDate } from '../../lib/format'
 import type { Timesheet } from '../../data/types'
 import {
-  MAX_DAYS_BACK, MAX_HOURS_PER_DAY, buildWeek, defaultHours, getMyCalendar, hasWeekErrors, submitTimesheet,
+  MAX_DAYS_BACK, MAX_HOURS_PER_DAY, MIN_HOURS_PER_DAY, buildWeek, defaultHours, getMyCalendar, hasWeekErrors, submitTimesheet,
   validateWeek, weekStartOf,
   type CalendarData, type TimesheetRecord, type WeekFormErrors, type WeekRow,
 } from '../../lib/workCalendar'
@@ -225,7 +225,7 @@ export default function TimesheetScreen({
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-line px-1 pt-3 text-[13px]">
                 <span className="text-ink-muted">
-                  {workingDays} working {workingDays === 1 ? 'day' : 'days'} · up to {MAX_HOURS_PER_DAY} h a day
+                  {workingDays} working {workingDays === 1 ? 'day' : 'days'} · {MIN_HOURS_PER_DAY}–{MAX_HOURS_PER_DAY} h a day
                 </span>
                 <span className="tnum font-semibold text-ink">Total {weekTotal} h</span>
               </div>
@@ -334,7 +334,7 @@ function DayRow({
             id={id}
             type="number"
             inputMode="decimal"
-            min={0}
+            min={MIN_HOURS_PER_DAY}
             max={MAX_HOURS_PER_DAY}
             step={0.25}
             value={disabled && row.disabled ? '' : value}

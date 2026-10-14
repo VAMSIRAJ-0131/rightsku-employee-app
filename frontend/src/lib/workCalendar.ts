@@ -69,7 +69,8 @@ export interface HolidayRecord {
 
 /** Timesheets can go back this many days (same as the server). */
 export const MAX_DAYS_BACK = 60
-/** Most hours that can be logged for one working day (same as the server). */
+/** Fewest and most hours that can be logged for one working day (same as the server). */
+export const MIN_HOURS_PER_DAY = 1
 export const MAX_HOURS_PER_DAY = 9
 
 /* ---------- Month grid for the timesheet date picker ---------- */
@@ -194,11 +195,16 @@ export function validateTimesheet(values: TimesheetFormValues, pickable: Set<str
   return errors
 }
 
-/** Hours for one day: 0.25 to 9 in steps of 0.25 (15 minutes). Returns the problem, if any. */
+export const DAY_HOURS_MESSAGE = `Enter hours from ${MIN_HOURS_PER_DAY} to ${MAX_HOURS_PER_DAY}, in steps of 0.25 (for example 7.5).`
+
+/** Hours for one day: 1 to 9 in steps of 0.25 (15 minutes). Returns the problem, if any. */
 export function checkDayHours(value: string): string | undefined {
   const hours = Number(value)
-  if (!value.trim() || !Number.isFinite(hours) || hours <= 0 || hours > MAX_HOURS_PER_DAY || Math.round(hours * 4) !== hours * 4) {
-    return `Enter hours from 0.25 to ${MAX_HOURS_PER_DAY}, in steps of 0.25 (for example 7.5).`
+  if (
+    !value.trim() || !Number.isFinite(hours) || hours < MIN_HOURS_PER_DAY || hours > MAX_HOURS_PER_DAY
+    || Math.round(hours * 4) !== hours * 4
+  ) {
+    return DAY_HOURS_MESSAGE
   }
   return undefined
 }
@@ -260,7 +266,8 @@ export function buildWeek(weekStart: string, calendar: CalendarDay[], today: str
 
 /** Starting value for a row's hours box: the scheduled hours for available days, empty otherwise. */
 export function defaultHours(row: WeekRow): string {
-  return row.state === 'available' && row.scheduledHours > 0 ? String(row.scheduledHours) : ''
+  // Only pre-fill a value the rules accept (a schedule under 1 hour leaves the box empty).
+  return row.state === 'available' && row.scheduledHours >= MIN_HOURS_PER_DAY ? String(row.scheduledHours) : ''
 }
 
 export interface WeekFormErrors {

@@ -65,8 +65,9 @@ The server refuses (400, field `date`): weekly offs from the schedule in force
 on that date, company holidays (a holiday on a weekly off is reported as the
 holiday), future dates in the company time zone (`app.time-zone`, default
 Asia/Kolkata), dates more than 60 days back, and dates before the joining
-date. One entry per date (409). Hours: 0.25 to 9 per day, in quarter hours
-(400, field `hours`). New entries are `PENDING`; HR approval is a later module.
+date. One entry per date (409). Hours: 1 to 9 per day, in quarter hours
+(1, 1.25, ... 8.75, 9; otherwise 400, field `hours`). An empty box in the app
+skips that day. New entries are `PENDING`; HR approval is a later module.
 
 The app shows one week at a time, a row per day ("Monday · Oct 12") with an
 hours box. Working days are pre-filled with the scheduled hours (at most 9);

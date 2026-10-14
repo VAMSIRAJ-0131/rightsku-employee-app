@@ -101,7 +101,7 @@ describe('timesheet form', () => {
   it('refuses a date that is not pickable and bad hours', () => {
     const errors = validateTimesheet({ date: '2026-10-10', hours: '7.1', description: '' }, pickable)
     expect(Object.keys(errors).sort()).toEqual(['date', 'description', 'hours'])
-    for (const bad of ['0', '-2', '9.25', '10', '25', 'abc', '']) {
+    for (const bad of ['0', '-2', '0.5', '9.25', '10', '25', 'abc', '']) {
       expect(validateTimesheet({ date: '2026-10-13', hours: bad, description: 'x' }, pickable).hours, bad).toBeDefined()
     }
   })
@@ -184,20 +184,31 @@ describe('weekly timesheet rows', () => {
     expect(defaultHours(rows[5])).toBe('')
   })
 
-  it('allows up to 9 hours per day in quarter hours', () => {
-    expect(checkDayHours('9')).toBeUndefined()
-    expect(checkDayHours('0.25')).toBeUndefined()
-    for (const bad of ['9.25', '10', '0', '7.1', 'x']) expect(checkDayHours(bad), bad).toBeDefined()
+  it('accepts 1 to 9 hours per day in quarter hours', () => {
+    for (const ok of ['1', '1.25', '2.5', '8.75', '9']) expect(checkDayHours(ok), ok).toBeUndefined()
+  })
+
+  it('refuses hours below 1, above 9 or not in quarter hours, with a clear message', () => {
+    for (const bad of ['0', '0.25', '0.5', '0.75', '0.99', '9.25', '10', '7.1', '1.2', '-1', 'x', ' ']) {
+      expect(checkDayHours(bad), bad).toBe('Enter hours from 1 to 9, in steps of 0.25 (for example 7.5).')
+    }
+  })
+
+  it('never pre-fills a value below 1 hour', () => {
+    const shortDays = serverMonth('2026-10').map((d) => ({ ...d, hoursPerDay: 0.5 }))
+    expect(defaultHours(buildWeek('2026-10-05', shortDays, TODAY, [])[0])).toBe('')
   })
 
   it('submits only filled open days, and checks hours and description', () => {
     const rows = buildWeek('2026-10-12', october, TODAY, submitted)
+    // An empty box skips that day; greyed days are ignored.
     const ok = validateWeek(rows, { '2026-10-13': '9', '2026-10-14': '', '2026-10-17': '8' }, 'Payslip screen')
     expect(ok.entries).toEqual([{ date: '2026-10-13', hours: '9' }])
+    expect(validateWeek(rows, { '2026-10-13': '1', '2026-10-14': '8.75' }, 'x').entries).toHaveLength(2)
     expect(hasWeekErrors(ok.errors)).toBe(false)
 
-    const bad = validateWeek(rows, { '2026-10-13': '10', '2026-10-14': '7.5' }, ' ')
-    expect(Object.keys(bad.errors.hours)).toEqual(['2026-10-13'])
+    const bad = validateWeek(rows, { '2026-10-13': '10', '2026-10-14': '0.5' }, ' ')
+    expect(Object.keys(bad.errors.hours)).toEqual(['2026-10-13', '2026-10-14'])
     expect(bad.errors.description).toBeDefined()
 
     const empty = validateWeek(rows, {}, 'x')

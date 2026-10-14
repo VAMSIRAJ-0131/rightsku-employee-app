@@ -194,12 +194,23 @@ class TimesheetServiceTest {
     }
 
     @Test
-    void hoursMustBeQuarterHoursUpToNine() {
-        for (String bad : new String[] {"0", "-1", "9.25", "10", "24", "7.1", "0.2"}) {
-            assertApiError(catchThrowable(() -> service.submit(110L, entry("2026-10-12", bad))), HttpStatus.BAD_REQUEST, "hours");
+    void hoursFromOneToNineInQuarterHoursAreAccepted() {
+        String[] valid = {"1", "1.25", "2.5", "8.75", "9"};
+        String[] days = {"2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"}; // Mon-Fri
+        for (int i = 0; i < valid.length; i++) {
+            assertThat(service.submit(110L, entry(days[i], valid[i])).hours()).as(valid[i])
+                    .isEqualByComparingTo(valid[i]);
         }
-        assertThat(service.submit(110L, entry("2026-10-12", "0.25")).hours()).isEqualByComparingTo("0.25");
-        assertThat(service.submit(110L, entry("2026-10-13", "9")).hours()).isEqualByComparingTo("9");
+    }
+
+    @Test
+    void hoursBelowOneOrAboveNineOrNotQuarterHoursAreRefused() {
+        for (String bad : new String[] {"0", "-1", "0.25", "0.5", "0.75", "0.99", "9.25", "10", "24", "7.1", "1.2"}) {
+            Throwable thrown = catchThrowable(() -> service.submit(110L, entry("2026-10-12", bad)));
+            assertApiError(thrown, HttpStatus.BAD_REQUEST, "hours");
+            assertThat(thrown).as(bad).hasMessage("Enter hours from 1 to 9, in steps of 0.25 (15 minutes).");
+        }
+        verify(entries, never()).saveAndFlush(any());
     }
 
     @Test
