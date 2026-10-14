@@ -16,7 +16,7 @@ import type { Employee, Role } from '../data/types'
  * /api to http://localhost:8080 (see vite.config.ts). For a build that runs
  * elsewhere (e.g. the Android app), set VITE_API_BASE_URL at build time.
  */
-const API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '')
+export const API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '')
 
 const LOGIN_TIMEOUT_MS = 15_000
 

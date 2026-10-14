@@ -30,8 +30,8 @@ public class HrAdminBootstrap implements ApplicationRunner {
     public static final String PASSWORD_VARIABLE = "HR_ADMIN_BOOTSTRAP_PASSWORD";
     public static final String EMAIL_PROPERTY = "app.bootstrap.hr-admin.email";
 
-    static final int MIN_PASSWORD_LENGTH = 12;
-    static final int MAX_PASSWORD_BYTES = 72; // BCrypt limit
+    static final int MIN_PASSWORD_LENGTH = PasswordPolicy.MIN_LENGTH;
+    static final int MAX_PASSWORD_BYTES = PasswordPolicy.MAX_BYTES; // BCrypt limit
 
     private static final Logger log = LoggerFactory.getLogger(HrAdminBootstrap.class);
 

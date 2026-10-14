@@ -6,12 +6,14 @@ import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * Turns common API errors into clear JSON responses.
@@ -41,6 +43,25 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds))
                 .body(body);
+    }
+
+    /** Known errors with a safe message: 400 (field), 404, 409 (already in use). */
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<Map<String, Object>> handleApi(ApiException ex) {
+        Map<String, String> fields = ex.getField() == null ? null : Map.of(ex.getField(), ex.getMessage());
+        return error(ex.getStatus(), ex.getMessage(), fields);
+    }
+
+    /** Safety net for database unique/check constraints; never exposes SQL details. */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, Object>> handleDataIntegrity(DataIntegrityViolationException ex) {
+        return error(HttpStatus.CONFLICT, "This change conflicts with existing data.", null);
+    }
+
+    /** For example /api/hr/employees/abc where a number is expected. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        return error(HttpStatus.BAD_REQUEST, "Invalid request", Map.of(ex.getName(), "Invalid value"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

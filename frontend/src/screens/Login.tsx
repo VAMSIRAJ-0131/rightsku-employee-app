@@ -6,7 +6,14 @@ import { login, loginErrorMessage, type AuthSession } from '../lib/auth'
 const inputCls =
   'h-12 w-full rounded-lg border bg-white px-4 text-[15px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-mist-500 focus:ring-4 focus:ring-mist-100'
 
-export default function Login({ onLogin }: { onLogin: (session: AuthSession) => void }) {
+export default function Login({
+  onLogin,
+  notice,
+}: {
+  onLogin: (session: AuthSession) => void
+  /** Shown above the form, e.g. after a session ends. */
+  notice?: string | null
+}) {
   // Employee ID for employees; HR Admins type their work email here instead.
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -63,6 +70,11 @@ export default function Login({ onLogin }: { onLogin: (session: AuthSession) => 
 
       {/* Form sheet */}
       <div className="mx-auto -mt-8 flex w-full max-w-md flex-1 flex-col px-4 pb-8">
+        {notice && !error && (
+          <div className="mb-3" role="status">
+            <Notice>{notice}</Notice>
+          </div>
+        )}
         <form onSubmit={handleSubmit} noValidate className="rounded-2xl border border-line bg-white p-5 shadow-raised">
           <label className="block">
             <span className="text-[13px] font-medium text-ink-soft">Employee ID</span>

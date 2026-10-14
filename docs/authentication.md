@@ -35,25 +35,31 @@ Added by migration `V2__add_login_id_to_app_users.sql`.
 - The two database checks are `NOT VALID`: they apply to new and changed rows,
   not to rows that existed before V2.
 
-**Not enforced yet: required future change**
+**Employee accounts (Phase 3, `EmployeeService`)**
 
-There is **no employee-management module yet**, so no code creates employee
-accounts or assigns Employee IDs today, and nothing yet guarantees that an
-employee's `app_users.login_id` matches their `employees.employee_code`.
+HR Admins create employees through `POST /api/hr/employees`. The service:
 
-When the employee-management module is built, it **must**:
+1. Creates the `employees` row and its `app_users` login (role `EMPLOYEE`) in
+   one transaction.
+2. Uses one normalized Employee ID for both `employees.employee_code` and
+   `app_users.login_id` (`Employee.create()` refuses a mismatch).
+3. Accepts an HR-typed ID (validated with `AppUser.normalizeLoginId()`) or, if
+   left blank, generates the next free `EMP001`, `EMP002`, … from the
+   `employee_code_seq` sequence (migration V3).
+4. Rejects an ID already used by any account, regardless of case (409), and the
+   database enforces the same with case-insensitive unique indexes on both
+   columns.
+5. Never changes an Employee ID after creation, so the two columns cannot drift.
+6. Stores the HR-chosen temporary password only as a BCrypt hash
+   (`PasswordPolicy`: at least 12 characters, at most 72 bytes).
+7. Deactivating an employee also deactivates their login; their open sessions
+   stop at the next request. Activating restores sign-in.
 
-1. Create the `employees` row and its `app_users` login in one transaction.
-2. Set `app_users.login_id` to the same value as `employees.employee_code`,
-   passing it through `AppUser.normalizeLoginId()` and storing the normalized
-   value in **both** columns.
-3. Reject a code that is already used (case-insensitive) with a clear error.
-4. Keep the two values equal when an Employee ID is ever changed (or disallow
-   changing it).
-5. Add tests for all of the above.
-
-Recommended at the same time: a database check or trigger that rejects an
-`employees` row whose `employee_code` differs from its user's `login_id`.
+**Still not enforced at the database level:** no trigger yet checks that
+`employees.employee_code` equals the linked `app_users.login_id`; this is
+guaranteed by the service, which is the only code that creates employees.
+**Not built yet:** forcing employees to change the temporary password at first
+sign-in, and an HR "reset password" action.
 
 ## Login rate limiting
 

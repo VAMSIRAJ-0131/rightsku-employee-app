@@ -82,9 +82,8 @@ public class AppUser {
     /**
      * Validates an Employee ID and returns it in its stored form: trimmed and
      * upper case (EMP001). Returns null for a missing or blank ID.
-     * Employee management must use this when assigning IDs, and must keep
-     * login_id equal to employees.employee_code. That module does not exist
-     * yet; see docs/authentication.md ("Not enforced yet").
+     * EmployeeService uses this when assigning IDs and stores the same value
+     * in employees.employee_code (see docs/authentication.md).
      */
     public static String normalizeLoginId(String loginId) {
         if (loginId == null || loginId.isBlank()) {
@@ -96,6 +95,21 @@ public class AppUser {
                     "Employee ID must be 1-30 letters, digits, '.', '_' or '-' and start with a letter or digit");
         }
         return id.toUpperCase(Locale.ROOT);
+    }
+
+    /** Changes the login email. The caller checks the format and that it is not already used. */
+    public void changeEmail(String newEmail) {
+        this.email = newEmail;
+    }
+
+    /** Allows sign-in again. */
+    public void activate() {
+        this.active = true;
+    }
+
+    /** Blocks sign-in; existing tokens stop working at their next request. */
+    public void deactivate() {
+        this.active = false;
     }
 
     @PrePersist

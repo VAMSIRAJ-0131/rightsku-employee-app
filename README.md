@@ -5,7 +5,7 @@ Android employee app for RIGHTSKU Solutions Private Limited, with Employee and H
 | Folder | What it is | Status |
 |---|---|---|
 | `frontend/` | The app screens (React + TypeScript + Vite + Tailwind CSS) | Phase 1 done |
-| `backend/` | Spring Boot + PostgreSQL server (login API) | In progress |
+| `backend/` | Spring Boot + PostgreSQL server (login, employee management) | In progress |
 
 ## Run the app on your computer
 
@@ -37,13 +37,16 @@ To sign in during development:
 
 The app contains no sample data. Dashboard sections stay empty until their backend APIs are connected.
 
-Details, Employee ID rules, login rate limiting and the changes still required
-before employee accounts can be created: [docs/authentication.md](docs/authentication.md).
+HR Admins add and manage employees (and their sign-in) from the **Employees** tab.
+
+Details, Employee ID rules, employee accounts and login rate limiting:
+[docs/authentication.md](docs/authentication.md).
 
 ## Check that the project builds
 
 ```
 npm run build
+npm test
 ```
 
 It should end with a line like `✓ built in ...`. The finished files go into `frontend/dist`.

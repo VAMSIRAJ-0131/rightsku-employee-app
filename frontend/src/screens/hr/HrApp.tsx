@@ -1,11 +1,13 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Icon, type IconName } from '../../components/Icons'
 import {
   AppHeader, Avatar, BottomNav, Button, Card, EmptyState, IconTile, List, ListRow,
-  Notice, Page, Section, Segmented, SearchField, StatusBadge, Tag, TopBar, useToast,
+  Notice, Page, Section, Segmented, StatusBadge, Tag, TopBar, useToast,
 } from '../../components/ui'
 import type { DashboardData, DocType, Employee } from '../../data/types'
 import { firstName, formatDate, formatShortDate, greeting, plural } from '../../lib/format'
+import { listEmployees } from '../../lib/employees'
+import EmployeesScreen from './EmployeesScreen'
 
 type Tab = 'home' | 'approvals' | 'employees' | 'documents'
 type SubScreen = 'roles' | 'reports' | 'audit' | null
@@ -14,25 +16,42 @@ type ApprovalView = 'timesheets' | 'leaves'
 export default function HrApp({
   user,
   data,
+  token,
   onLogout,
+  onSessionExpired,
 }: {
   user: Employee
   data: DashboardData
+  /** JWT for API calls. Memory only. */
+  token: string
   onLogout: () => void
+  onSessionExpired: () => void
 }) {
   const { timesheets, leaves, documents, employees, auditLog } = data
   const employeeName = (id: string) => employees.find((e) => e.id === id)?.name ?? id
   const [tab, setTab] = useState<Tab>('home')
   const [sub, setSub] = useState<SubScreen>(null)
   const [approvalView, setApprovalView] = useState<ApprovalView>('timesheets')
-  const [search, setSearch] = useState('')
   const { show, toast } = useToast()
+  const [countsVersion, setCountsVersion] = useState(0)
+  const [counts, setCounts] = useState<{ active: number; inactive: number } | null>(null)
+
+  // Real employee counts for the home screen and reports.
+  useEffect(() => {
+    const controller = new AbortController()
+    listEmployees(token, { size: 1 }, controller.signal).then((result) => {
+      if (controller.signal.aborted) return
+      if (result.ok) setCounts({ active: result.data.activeCount, inactive: result.data.inactiveCount })
+      else if (result.error.kind === 'unauthorized') onSessionExpired()
+    })
+    return () => controller.abort()
+  }, [token, countsVersion, onSessionExpired])
 
   const pendingTimesheets = timesheets.filter((t) => t.status === 'Pending')
   const pendingLeaves = leaves.filter((l) => l.status === 'Pending')
   const pendingTotal = pendingTimesheets.length + pendingLeaves.length
-  const staff = employees.filter((e) => e.role === 'employee')
-  const activeCount = staff.filter((e) => e.active).length
+  const activeCount = counts ? counts.active : '–'
+  const inactiveCount = counts ? counts.inactive : '–'
 
   function goTab(next: Tab) {
     setSub(null)
@@ -50,7 +69,7 @@ export default function HrApp({
       <>
         <TopBar title="Roles and access" subtitle={`${employees.length} user accounts`} onBack={() => setSub(null)} />
         <Section>
-          <Notice>Changing roles arrives in Phase 3. From Phase 4 the server checks every permission.</Notice>
+          <Notice>Changing roles arrives in a later update. The server already checks every permission.</Notice>
         </Section>
         <Section title="Accounts">
           {employees.length === 0 ? (
@@ -106,13 +125,13 @@ export default function HrApp({
           <MetricStrip
             items={[
               { label: 'Active', value: activeCount },
-              { label: 'Inactive', value: staff.length - activeCount },
+              { label: 'Inactive', value: inactiveCount },
               { label: 'Documents', value: documents.length },
             ]}
           />
         </Section>
         <Section>
-          <Notice>Detailed reports and full approval history arrive in Phase 3.</Notice>
+          <Notice>Detailed reports and full approval history arrive in a later update.</Notice>
         </Section>
       </>
     )
@@ -206,7 +225,7 @@ export default function HrApp({
           <MetricStrip
             items={[
               { label: 'Active staff', value: activeCount },
-              { label: 'Inactive', value: staff.length - activeCount },
+              { label: 'Inactive', value: inactiveCount },
               { label: 'Documents', value: documents.length },
             ]}
           />
@@ -255,8 +274,8 @@ export default function HrApp({
   } else if (tab === 'approvals') {
     const isTs = approvalView === 'timesheets'
     const count = isTs ? pendingTimesheets.length : pendingLeaves.length
-    const approve = later('Approving', 'Phase 3')
-    const reject = later('Rejecting', 'Phase 3')
+    const approve = later('Approving', 'a later update')
+    const reject = later('Rejecting', 'a later update')
     screen = (
       <>
         <TopBar title="Approvals" subtitle={`${pendingTotal} waiting for review`} />
@@ -310,52 +329,13 @@ export default function HrApp({
       </>
     )
   } else if (tab === 'employees') {
-    const q = search.trim().toLowerCase()
-    const shown = staff.filter(
-      (e) => !q || e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q) || e.department.toLowerCase().includes(q),
-    )
     screen = (
-      <>
-        <TopBar
-          title="Employees"
-          subtitle={`${activeCount} active, ${staff.length - activeCount} inactive`}
-          right={
-            <Button size="sm" onClick={later('Adding employees', 'Phase 3')}>
-              <Icon name="plus" className="h-4 w-4" /> Add
-            </Button>
-          }
-        />
-        <Section>
-          <SearchField value={search} onChange={setSearch} placeholder="Search by name, ID or department" />
-        </Section>
-        <Section title={q ? `Results (${shown.length})` : `All employees (${shown.length})`}>
-          {shown.length === 0 ? (
-            <EmptyState icon="search" title="No matching employees" message="Check the spelling, or search by Employee ID instead." />
-          ) : (
-            <List>
-              {shown.map((e) => (
-                <ListRow
-                  key={e.id}
-                  leading={<Avatar name={e.name} size="sm" />}
-                  title={e.name}
-                  subtitle={
-                    <span className="tnum">
-                      {e.id}, {e.designation}
-                    </span>
-                  }
-                  right={
-                    <span className="flex items-center gap-1">
-                      <StatusBadge status={e.active ? 'Active' : 'Inactive'} />
-                      <Icon name="chevronRight" className="h-[18px] w-[18px] text-ink-muted/70" />
-                    </span>
-                  }
-                  onClick={later('Editing employee details', 'Phase 3')}
-                />
-              ))}
-            </List>
-          )}
-        </Section>
-      </>
+      <EmployeesScreen
+        token={token}
+        onToast={show}
+        onSessionExpired={onSessionExpired}
+        onChanged={() => setCountsVersion((v) => v + 1)}
+      />
     )
   } else {
     const types: { type: DocType; icon: IconName; hint: string }[] = [
@@ -376,7 +356,7 @@ export default function HrApp({
                 title={t.type}
                 subtitle={`${t.hint}, ${documents.filter((d) => d.type === t.type).length} on file`}
                 right={
-                  <Button size="sm" variant="secondary" onClick={later(`Uploading a ${t.type.toLowerCase()}`, 'Phase 3')}>
+                  <Button size="sm" variant="secondary" onClick={later(`Uploading a ${t.type.toLowerCase()}`, 'a later update')}>
                     <Icon name="upload" className="h-4 w-4" /> Upload
                   </Button>
                 }
