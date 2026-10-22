@@ -1,19 +1,24 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Icon, type IconName } from '../../components/Icons'
 import {
-  AppHeader, Avatar, BottomNav, Button, Card, EmptyState, IconTile, List, ListRow,
-  Notice, Page, Section, Segmented, StatusBadge, Tag, TopBar, useToast,
+  Avatar, BottomNav, CenteredHeader, Button, Card, EmptyState, IconTile, List, ListRow,
+  Notice, Page, Section, Tag, TopBar, useToast,
 } from '../../components/ui'
 import type { DashboardData, Employee } from '../../data/types'
-import { firstName, formatDate, formatShortDate, greeting, plural } from '../../lib/format'
+import type { ApiError } from '../../lib/api'
+import { firstName, formatShortDate, greeting, plural } from '../../lib/format'
 import { listEmployees } from '../../lib/employees'
+import {
+  EMPTY_SUMMARY, getApprovalSummary, listTimesheetWeeks, weekKey, type ApprovalSummary, type HrTimesheetWeek,
+} from '../../lib/approvals'
+import { days as dayCount, listLeaveRequests, type LeaveRequestRecord } from '../../lib/leave'
+import ApprovalsScreen, { type ApprovalView } from './ApprovalsScreen'
 import EmployeesScreen from './EmployeesScreen'
 import HolidaysScreen from './HolidaysScreen'
 import HrDocumentsScreen from './HrDocumentsScreen'
 
 type Tab = 'home' | 'approvals' | 'employees' | 'documents'
 type SubScreen = 'roles' | 'reports' | 'audit' | 'holidays' | null
-type ApprovalView = 'timesheets' | 'leaves'
 
 export default function HrApp({
   user,
@@ -29,8 +34,7 @@ export default function HrApp({
   onLogout: () => void
   onSessionExpired: () => void
 }) {
-  const { timesheets, leaves, documents, employees, auditLog } = data
-  const employeeName = (id: string) => employees.find((e) => e.id === id)?.name ?? id
+  const { documents, employees, auditLog } = data
   const [tab, setTab] = useState<Tab>('home')
   const [sub, setSub] = useState<SubScreen>(null)
   const [approvalView, setApprovalView] = useState<ApprovalView>('timesheets')
@@ -49,21 +53,55 @@ export default function HrApp({
     return () => controller.abort()
   }, [token, countsVersion, onSessionExpired])
 
-  const pendingTimesheets = timesheets.filter((t) => t.status === 'Pending')
-  const pendingLeaves = leaves.filter((l) => l.status === 'Pending')
-  const pendingTotal = pendingTimesheets.length + pendingLeaves.length
+  // Approvals: counts and pending lists, always from the server. Reloaded after every decision.
+  const [approvalsVersion, setApprovalsVersion] = useState(0)
+  const [summary, setSummary] = useState<ApprovalSummary>(EMPTY_SUMMARY)
+  const [pendingWeeks, setPendingWeeks] = useState<HrTimesheetWeek[]>([])
+  const [pendingLeaves, setPendingLeaves] = useState<LeaveRequestRecord[]>([])
+  const [approvalsError, setApprovalsError] = useState<string | null>(null)
+
+  const handleError = useCallback(
+    (error: ApiError) => {
+      if (error.kind === 'unauthorized') onSessionExpired()
+      return error
+    },
+    [onSessionExpired],
+  )
+
+  useEffect(() => {
+    const controller = new AbortController()
+    Promise.all([
+      getApprovalSummary(token, controller.signal),
+      listTimesheetWeeks(token, 'PENDING', controller.signal),
+      listLeaveRequests(token, 'PENDING', controller.signal),
+    ]).then(([s, w, l]) => {
+      if (controller.signal.aborted) return
+      if (!s.ok) return setApprovalsError(handleError(s.error).message)
+      if (!w.ok) return setApprovalsError(handleError(w.error).message)
+      if (!l.ok) return setApprovalsError(handleError(l.error).message)
+      setApprovalsError(null)
+      setSummary(s.data)
+      setPendingWeeks(w.data)
+      setPendingLeaves(l.data)
+    })
+    return () => controller.abort()
+  }, [token, approvalsVersion, handleError])
+
+  const pendingTotal = summary.timesheets.pending + summary.leave.pending
   const activeCount = counts ? counts.active : '–'
   const inactiveCount = counts ? counts.inactive : '–'
 
   function goTab(next: Tab) {
     setSub(null)
     setTab(next)
+    // Fresh counts and lists whenever HR comes back to Home or Approvals.
+    if (next === 'home' || next === 'approvals') setApprovalsVersion((v) => v + 1)
   }
   function openApprovals(view: ApprovalView) {
     setApprovalView(view)
     goTab('approvals')
+    setApprovalsVersion((v) => v + 1)
   }
-  const later = (what: string, phase: string) => () => show(`${what} becomes available in ${phase}.`)
 
   let screen: ReactNode
   if (sub === 'holidays') {
@@ -102,28 +140,24 @@ export default function HrApp({
       </>
     )
   } else if (sub === 'reports') {
-    const approved = timesheets.filter((t) => t.status === 'Approved').length
-    const rejected = timesheets.filter((t) => t.status === 'Rejected').length
-    const leaveApproved = leaves.filter((l) => l.status === 'Approved').length
-    const leaveRejected = leaves.filter((l) => l.status === 'Rejected').length
     screen = (
       <>
-        <TopBar title="Reports" subtitle="Summary of sample records" onBack={() => setSub(null)} />
-        <Section title="Timesheets">
+        <TopBar title="Reports" subtitle="Summary of saved records" onBack={() => setSub(null)} />
+        <Section title="Timesheets (weeks)">
           <MetricStrip
             items={[
-              { label: 'Pending', value: pendingTimesheets.length },
-              { label: 'Approved', value: approved },
-              { label: 'Rejected', value: rejected },
+              { label: 'Pending', value: summary.timesheets.pending },
+              { label: 'Approved', value: summary.timesheets.approved },
+              { label: 'Rejected', value: summary.timesheets.rejected },
             ]}
           />
         </Section>
         <Section title="Leave">
           <MetricStrip
             items={[
-              { label: 'Pending', value: pendingLeaves.length },
-              { label: 'Approved', value: leaveApproved },
-              { label: 'Rejected', value: leaveRejected },
+              { label: 'Pending', value: summary.leave.pending },
+              { label: 'Approved', value: summary.leave.approved },
+              { label: 'Rejected', value: summary.leave.rejected },
             ]}
           />
         </Section>
@@ -173,31 +207,35 @@ export default function HrApp({
     )
   } else if (tab === 'home') {
     const queue = [
-      ...pendingTimesheets.map((t) => ({
-        id: t.id,
-        name: employeeName(t.employeeId),
+      ...pendingWeeks.map((w) => ({
+        id: `ts-${weekKey(w)}`,
+        name: w.employeeName ?? `Employee ${w.employeeId}`,
         kind: 'Timesheet',
-        detail: `${formatShortDate(t.date)}, ${t.hours} h`,
+        detail: `Week of ${formatShortDate(w.weekStart)}, ${Number(w.totalHours)} h`,
         view: 'timesheets' as ApprovalView,
       })),
       ...pendingLeaves.map((l) => ({
-        id: l.id,
-        name: employeeName(l.employeeId),
+        id: `lv-${l.id}`,
+        name: l.employeeName ?? `Employee ${l.employeeId}`,
         kind: 'Leave',
-        detail: `${l.type}, ${plural(l.days, 'day')} from ${formatShortDate(l.from)}`,
+        detail: `${l.label}, ${plural(dayCount(l.days), 'day')} from ${formatShortDate(l.startDate)}`,
         view: 'leaves' as ApprovalView,
       })),
     ]
     screen = (
       <>
-        <AppHeader
-          start={
-            <>
-              <span className="grid h-11 w-11 place-items-center">
-                <Avatar name={user.name} size="sm" />
-              </span>
-              <Tag>HR/Admin</Tag>
-            </>
+        <CenteredHeader
+          start={<Tag>HR/Admin</Tag>}
+          end={
+            <button
+              type="button"
+              onClick={onLogout}
+              aria-label="Log out"
+              className="inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2 text-[14px] font-semibold text-bad hover:bg-bad-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-700"
+            >
+              <Icon name="logout" className="h-[18px] w-[18px] shrink-0" />
+              <span className="hidden min-[360px]:inline">Log out</span>
+            </button>
           }
         />
         <div className="px-5 pt-3">
@@ -215,15 +253,15 @@ export default function HrApp({
             </div>
             <div className="mt-4 grid grid-cols-2 divide-x divide-white/10 rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
               <button onClick={() => openApprovals('timesheets')} className="px-3 py-2.5 text-left hover:bg-white/5">
-                <span className="tnum block text-[18px] font-semibold">{pendingTimesheets.length}</span>
+                <span className="tnum block text-[18px] font-semibold">{summary.timesheets.pending}</span>
                 <span className="text-[12px] text-mist-300">Timesheets</span>
               </button>
               <button onClick={() => openApprovals('leaves')} className="px-3 py-2.5 text-left hover:bg-white/5">
-                <span className="tnum block text-[18px] font-semibold">{pendingLeaves.length}</span>
+                <span className="tnum block text-[18px] font-semibold">{summary.leave.pending}</span>
                 <span className="text-[12px] text-mist-300">Leave</span>
               </button>
             </div>
-            <Button variant="onDark" size="lg" onClick={() => openApprovals(pendingTimesheets.length ? 'timesheets' : 'leaves')} className="mt-4 w-full">
+            <Button variant="onDark" size="lg" onClick={() => openApprovals(summary.timesheets.pending || !summary.leave.pending ? 'timesheets' : 'leaves')} className="mt-4 w-full">
               <Icon name="check" className="h-[18px] w-[18px]" /> Review approvals
             </Button>
           </div>
@@ -240,7 +278,9 @@ export default function HrApp({
         </section>
 
         <Section title="Waiting for review" action={<TextLink onClick={() => openApprovals('timesheets')}>Open queue</TextLink>}>
-          {queue.length === 0 ? (
+          {approvalsError ? (
+            <Notice tone="bad">{approvalsError}</Notice>
+          ) : queue.length === 0 ? (
             <EmptyState icon="checkCircle" title="Queue is clear" message="New timesheets and leave applications will appear here." />
           ) : (
             <List>
@@ -273,69 +313,19 @@ export default function HrApp({
           </List>
         </Section>
 
-        <Section>
-          <Button variant="danger" onClick={onLogout} className="w-full">
-            <Icon name="logout" className="h-[18px] w-[18px]" /> Log out
-          </Button>
-        </Section>
       </>
     )
   } else if (tab === 'approvals') {
-    const isTs = approvalView === 'timesheets'
-    const count = isTs ? pendingTimesheets.length : pendingLeaves.length
-    const approve = later('Approving', 'a later update')
-    const reject = later('Rejecting', 'a later update')
     screen = (
-      <>
-        <TopBar title="Approvals" subtitle={`${pendingTotal} waiting for review`} />
-        <Section>
-          <Segmented
-            options={[
-              { id: 'timesheets', label: 'Timesheets', count: pendingTimesheets.length },
-              { id: 'leaves', label: 'Leave', count: pendingLeaves.length },
-            ]}
-            value={approvalView}
-            onChange={setApprovalView}
-          />
-        </Section>
-        <Section title={`Pending (${count})`}>
-          {count === 0 ? (
-            <EmptyState icon="checkCircle" title="Nothing to review" message="New requests will appear here as employees submit them." />
-          ) : (
-            <div className="space-y-3">
-              {isTs
-                ? pendingTimesheets.map((t) => (
-                    <ApprovalCard
-                      key={t.id}
-                      name={employeeName(t.employeeId)}
-                      reference={t.id}
-                      facts={[
-                        ['Date', formatDate(t.date)],
-                        ['Hours', `${t.hours} h`],
-                      ]}
-                      note={t.description}
-                      onApprove={approve}
-                      onReject={reject}
-                    />
-                  ))
-                : pendingLeaves.map((l) => (
-                    <ApprovalCard
-                      key={l.id}
-                      name={employeeName(l.employeeId)}
-                      reference={l.id}
-                      facts={[
-                        ['Type', `${l.type}, ${plural(l.days, 'day')}`],
-                        ['Dates', l.from === l.to ? formatShortDate(l.from) : `${formatShortDate(l.from)} to ${formatShortDate(l.to)}`],
-                      ]}
-                      note={l.reason}
-                      onApprove={approve}
-                      onReject={reject}
-                    />
-                  ))}
-            </div>
-          )}
-        </Section>
-      </>
+      <ApprovalsScreen
+        token={token}
+        view={approvalView}
+        onViewChange={setApprovalView}
+        summary={summary}
+        onChanged={() => setApprovalsVersion((v) => v + 1)}
+        onError={handleError}
+        onToast={show}
+      />
     )
   } else if (tab === 'employees') {
     screen = (
@@ -413,46 +403,5 @@ function TextLink({ children, onClick }: { children: ReactNode; onClick: () => v
     <button onClick={onClick} className="-my-2 -mr-2 rounded-md px-2 py-2 text-[13px] font-semibold text-navy-700 hover:bg-mist-50">
       {children}
     </button>
-  )
-}
-
-function ApprovalCard({
-  name, reference, facts, note, onApprove, onReject,
-}: {
-  name: string
-  reference: string
-  facts: [string, string][]
-  note: string
-  onApprove: () => void
-  onReject: () => void
-}) {
-  return (
-    <Card className="p-4">
-      <div className="flex items-center gap-3">
-        <Avatar name={name} size="sm" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-semibold text-ink">{name}</p>
-          <p className="tnum text-[12px] text-ink-muted">Ref {reference}</p>
-        </div>
-        <StatusBadge status="Pending" />
-      </div>
-      <dl className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-line ring-1 ring-line">
-        {facts.map(([k, v]) => (
-          <div key={k} className="bg-mist-50/60 px-3 py-2">
-            <dt className="text-[11px] text-ink-muted">{k}</dt>
-            <dd className="tnum text-[14px] font-medium text-ink">{v}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="mt-3 text-[14px] leading-relaxed text-ink-soft">{note}</p>
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <Button variant="danger" size="sm" onClick={onReject}>
-          <Icon name="x" className="h-4 w-4" /> Reject
-        </Button>
-        <Button size="sm" onClick={onApprove}>
-          <Icon name="check" className="h-4 w-4" /> Approve
-        </Button>
-      </div>
-    </Card>
   )
 }

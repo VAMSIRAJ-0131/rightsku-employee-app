@@ -3,6 +3,7 @@
 // The server decides which days are working days (HR schedule in force on
 // that date, minus company holidays) and refuses timesheets for any other
 // day. The app shows the same calendar so those dates are disabled up front.
+// The weekly timesheet (Save / Submit for approval) is in timesheetWeek.ts.
 import { apiRequest } from './api'
 import { toIsoDate } from './format'
 import type { Status, Timesheet } from '../data/types'
@@ -43,6 +44,8 @@ export interface TimesheetRecord {
   description: string
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | string
   submittedAt: string
+  /** HR's note when the day was reviewed, if any. */
+  remark?: string | null
 }
 
 export interface ScheduleView {
@@ -209,103 +212,12 @@ export function checkDayHours(value: string): string | undefined {
   return undefined
 }
 
-/* ---------- Weekly timesheet rows ---------- */
+/* ---------- Weeks ---------- */
 
 /** Monday of the week that contains this date. */
 export function weekStartOf(iso: string): string {
   const d = new Date(`${iso}T00:00:00`)
   return addDays(iso, -((d.getDay() + 6) % 7))
-}
-
-export interface WeekRow {
-  iso: string
-  /** "Monday · Oct 12" */
-  label: string
-  state: Exclude<CellState, 'outside'>
-  /** Only "available" rows take hours; every other row is greyed out. */
-  disabled: boolean
-  holidayName: string | null
-  /** Hours HR scheduled for that day, capped at the daily maximum. */
-  scheduledHours: number
-  /** The entry already submitted for that day, if any. */
-  entry: Timesheet | null
-  isToday: boolean
-}
-
-/**
- * The seven days of one week (Monday first), using the server calendar for
- * working days, weekly offs and holidays. A day can take hours only when it
- * is a working day, not in the future, not more than MAX_DAYS_BACK days ago
- * and not already submitted.
- */
-export function buildWeek(weekStart: string, calendar: CalendarDay[], today: string, entries: Timesheet[]): WeekRow[] {
-  const byDate = new Map(calendar.map((d) => [d.date, d]))
-  const entryByDate = new Map(entries.map((e) => [e.date, e]))
-  const oldest = addDays(today, -MAX_DAYS_BACK)
-  return Array.from({ length: 7 }, (_, i) => {
-    const iso = addDays(weekStart, i)
-    const info = byDate.get(iso)
-    const entry = entryByDate.get(iso) ?? null
-    const d = new Date(`${iso}T00:00:00`)
-    const label = `${d.toLocaleDateString('en-US', { weekday: 'long' })} · ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-    let state: WeekRow['state']
-    // An entry already submitted is always shown, even if the day later became a holiday.
-    if (entry) state = 'submitted'
-    else if (info?.kind === 'HOLIDAY') state = 'holiday'
-    else if (info?.kind === 'WEEKLY_OFF') state = 'weekly-off'
-    else if (iso > today) state = 'future'
-    else if (iso < oldest || !info) state = 'too-old'
-    else state = 'available'
-    const scheduled = Math.min(MAX_HOURS_PER_DAY, Number(info?.hoursPerDay ?? 0) || 0)
-    return {
-      iso, label, state, disabled: state !== 'available', holidayName: info?.holidayName ?? null,
-      scheduledHours: scheduled, entry, isToday: iso === today,
-    }
-  })
-}
-
-/** Starting value for a row's hours box: the scheduled hours for available days, empty otherwise. */
-export function defaultHours(row: WeekRow): string {
-  // Only pre-fill a value the rules accept (a schedule under 1 hour leaves the box empty).
-  return row.state === 'available' && row.scheduledHours >= MIN_HOURS_PER_DAY ? String(row.scheduledHours) : ''
-}
-
-export interface WeekFormErrors {
-  /** Per date: the problem with that day's hours. */
-  hours: Record<string, string>
-  description?: string
-  /** Nothing to submit. */
-  form?: string
-}
-
-/**
- * Checks the week before sending. Empty boxes are skipped (that day is not
- * submitted). Returns the days to send, in date order, and any problems.
- */
-export function validateWeek(
-  rows: WeekRow[], hours: Record<string, string>, description: string,
-): { entries: { date: string; hours: string }[]; errors: WeekFormErrors } {
-  const errors: WeekFormErrors = { hours: {} }
-  const entries: { date: string; hours: string }[] = []
-  for (const row of rows) {
-    if (row.disabled) continue
-    const value = (hours[row.iso] ?? '').trim()
-    if (!value) continue
-    const problem = checkDayHours(value)
-    if (problem) errors.hours[row.iso] = problem
-    else entries.push({ date: row.iso, hours: value })
-  }
-  if (entries.length === 0 && Object.keys(errors.hours).length === 0) {
-    errors.form = 'Enter hours for at least one working day.'
-  }
-  const text = description.trim()
-  if (!text) errors.description = 'Describe the work you did.'
-  else if (text.length > 500) errors.description = 'Use at most 500 characters.'
-  return { entries, errors }
-}
-
-export function hasWeekErrors(errors: WeekFormErrors): boolean {
-  return Object.keys(errors.hours).length > 0 || !!errors.description || !!errors.form
 }
 
 const STATUS: Record<string, Status> = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected' }
@@ -319,6 +231,8 @@ export function toTimesheet(record: TimesheetRecord, employeeId: string): Timesh
     hours: Number(record.hours),
     description: record.description,
     status: STATUS[record.status] ?? 'Pending',
+    remark: record.remark ?? undefined,
+    submittedAt: record.submittedAt ?? undefined,
   }
 }
 
@@ -374,14 +288,6 @@ export function getMyCalendar(token: string, from: string, to: string, signal?: 
 
 export function listMyTimesheets(token: string, from: string, to: string, signal?: AbortSignal) {
   return apiRequest<TimesheetRecord[]>(`/api/employee/timesheets?from=${from}&to=${to}`, { token, signal })
-}
-
-export function submitTimesheet(token: string, values: TimesheetFormValues) {
-  return apiRequest<TimesheetRecord>('/api/employee/timesheets', {
-    token,
-    method: 'POST',
-    body: { date: values.date, hours: Number(values.hours), description: values.description.trim() },
-  })
 }
 
 export function getSchedule(token: string, employeeId: number, signal?: AbortSignal) {

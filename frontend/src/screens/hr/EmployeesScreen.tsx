@@ -17,6 +17,8 @@ import type { DocumentRecord } from '../../lib/documents'
 import type { ScheduleView } from '../../lib/workCalendar'
 import DocumentUploadForm from './DocumentUploadForm'
 import EmployeeDocumentsSection from './EmployeeDocumentsSection'
+import LeaveBalanceSection from './LeaveBalanceSection'
+import CompOffSection from './CompOffSection'
 import { ScheduleForm, ScheduleSection } from './ScheduleSection'
 
 type View =
@@ -362,6 +364,8 @@ function EmployeeDetails({
   const [saving, setSaving] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
+  // Goes up after a Comp-Off change in Leave balance, so the Comp-Off history reloads.
+  const [compOffVersion, setCompOffVersion] = useState(0)
 
   // Always refresh from the server, so the screen shows the latest saved data.
   useEffect(() => {
@@ -450,6 +454,16 @@ function EmployeeDetails({
             onEdit={(current) => onEditSchedule(record, current)}
             onError={onError}
           />
+
+          <LeaveBalanceSection
+            token={token}
+            employeeId={record.id}
+            onError={onError}
+            onToast={onToast}
+            onCompOffChanged={() => setCompOffVersion((v) => v + 1)}
+          />
+
+          <CompOffSection token={token} employeeId={record.id} version={compOffVersion} onError={onError} />
 
           <EmployeeDocumentsSection
             token={token}

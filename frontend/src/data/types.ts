@@ -33,6 +33,8 @@ export interface Timesheet {
   description: string
   status: Status
   remark?: string
+  /** When the day was sent for approval (ISO time), if known. */
+  submittedAt?: string
 }
 
 export interface LeaveRequest {

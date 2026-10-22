@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apiRequest } from './api'
+import { apiRequest, MISSING_ENDPOINT_MESSAGE } from './api'
 
 const TOKEN = 'test-only-token'
 
@@ -103,6 +103,28 @@ describe('apiRequest', () => {
       expect(result.error.kind).toBe('network')
       expect(JSON.stringify(result)).not.toContain(TOKEN)
     }
+  })
+
+  it('explains a 404 for a missing endpoint instead of showing Spring\'s bare "Not Found"', async () => {
+    respond(404, { timestamp: '2026-10-22T04:00:00.000+00:00', status: 404, error: 'Not Found', path: '/api/hr/approvals/summary' })
+
+    const result = await apiRequest('/api/hr/approvals/summary', { token: TOKEN })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.kind).toBe('not-found')
+    expect(result.error.message).toBe(MISSING_ENDPOINT_MESSAGE)
+    expect(result.error.message).not.toBe('Not Found')
+  })
+
+  it('still shows our own 404 messages for a missing record', async () => {
+    respond(404, { status: 404, error: 'Employee record not found.' })
+
+    const result = await apiRequest('/api/employee/leave/balances', { token: TOKEN })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toEqual({ kind: 'not-found', message: 'Employee record not found.', fields: {} })
   })
 
   it('handles an empty or non-JSON error body', async () => {

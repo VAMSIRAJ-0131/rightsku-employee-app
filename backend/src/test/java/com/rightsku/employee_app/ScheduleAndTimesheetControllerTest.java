@@ -48,8 +48,15 @@ class ScheduleAndTimesheetControllerTest {
             {"weeklyOffs":["SUNDAY"],"hoursPerDay":8,"effectiveFrom":"2026-10-05"}""";
     private static final String HOLIDAY = """
             {"date":"2026-10-02","name":"Gandhi Jayanti"}""";
-    private static final String TIMESHEET = """
+    private static final String OLD_ONE_DAY = """
             {"date":"2026-10-12","hours":7.5,"description":"Built the payslip screen"}""";
+    private static final String WEEK = """
+            {"weekStart":"2026-10-05","description":"Built the payslip screen",
+             "days":[{"date":"2026-10-05","hours":9},{"date":"2026-10-06","hours":null}]}""";
+    private static final WeekTimesheetRequest WEEK_REQUEST = new WeekTimesheetRequest(LocalDate.parse("2026-10-05"),
+            "Built the payslip screen", List.of(
+                    new WeekTimesheetRequest.DayHours(LocalDate.parse("2026-10-05"), new BigDecimal("9")),
+                    new WeekTimesheetRequest.DayHours(LocalDate.parse("2026-10-06"), null)));
 
     @Autowired
     private MockMvc mockMvc;
@@ -152,27 +159,85 @@ class ScheduleAndTimesheetControllerTest {
 
     /* ---------- Employee: own calendar and timesheets ---------- */
 
-    @Test
-    void employeeSubmitsTimesheetForThemselves() throws Exception {
-        when(timesheetService.submit(eq(110L), any())).thenReturn(new TimesheetResponse(900L,
-                LocalDate.parse("2026-10-12"), new BigDecimal("7.50"), "Built the payslip screen", "PENDING",
-                Instant.parse("2026-10-12T12:00:00Z")));
+    private static WeekTimesheetResponse weekResponse(String status) {
+        BigDecimal nine = new BigDecimal("9.00");
+        return new WeekTimesheetResponse(LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"),
+                LocalDate.parse("2026-10-14"), status, "Built the payslip screen", null, null,
+                List.of(new WeekTimesheetResponse.Day(LocalDate.parse("2026-10-05"), "WORKING", false, null, false, null,
+                        nine, nine, nine, null, true)),
+                new WeekTimesheetResponse.Target(new BigDecimal("45.00"), BigDecimal.ZERO, BigDecimal.ZERO,
+                        new BigDecimal("45.00"), nine, new BigDecimal("36.00")),
+                LocalDate.parse("2026-10-09"), false, "Enter 36 more hours to reach this week's 45 hours.");
+    }
 
-        mockMvc.perform(as(json(post("/api/employee/timesheets"), TIMESHEET), employeeToken))
+    @Test
+    void employeeReadsSavesAndSubmitsTheirOwnWeek() throws Exception {
+        when(timesheetService.weekMine(110L, LocalDate.parse("2026-10-05"))).thenReturn(weekResponse("NOT_STARTED"));
+        when(timesheetService.saveDraft(eq(110L), any())).thenReturn(weekResponse("DRAFT"));
+        when(timesheetService.submitWeek(eq(110L), any())).thenReturn(weekResponse("SUBMITTED"));
+
+        mockMvc.perform(as(get("/api/employee/timesheets/week").param("start", "2026-10-05"), employeeToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.target.expectedHours").value(45.00))
+                .andExpect(jsonPath("$.target.remainingHours").value(36.00))
+                .andExpect(jsonPath("$.submitBlockedReason").value("Enter 36 more hours to reach this week's 45 hours."));
+        mockMvc.perform(as(json(put("/api/employee/timesheets/week/draft"), WEEK), employeeToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"));
+        mockMvc.perform(as(json(post("/api/employee/timesheets/week/submit"), WEEK), employeeToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUBMITTED"));
+
+        // The employee always comes from the token (user 110), never from the request.
+        verify(timesheetService).saveDraft(110L, WEEK_REQUEST);
+        verify(timesheetService).submitWeek(110L, WEEK_REQUEST);
+    }
+
+    @Test
+    void serverRefusalsReachTheApp() throws Exception {
+        when(timesheetService.submitWeek(eq(110L), any()))
+                .thenThrow(ApiException.invalid("target", "Enter 9 more hours to reach this week's 45 hours."));
+        when(timesheetService.saveDraft(eq(110L), any()))
+                .thenThrow(ApiException.invalid("days[2026-10-10]", "Sat 10 Oct 2026 is your weekly off."));
+
+        mockMvc.perform(as(json(post("/api/employee/timesheets/week/submit"), WEEK), employeeToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields.target").value("Enter 9 more hours to reach this week's 45 hours."));
+        mockMvc.perform(as(json(put("/api/employee/timesheets/week/draft"), WEEK), employeeToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields['days[2026-10-10]']").value("Sat 10 Oct 2026 is your weekly off."));
+    }
+
+    @Test
+    void weekRequestNeedsAWeekAndDays() throws Exception {
+        mockMvc.perform(as(json(put("/api/employee/timesheets/week/draft"), "{\"description\":\"x\"}"), employeeToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields.weekStart").exists())
+                .andExpect(jsonPath("$.fields.days").exists());
+        verify(timesheetService, never()).saveDraft(anyLong(), any());
+    }
+
+    @Test
+    void theOlderOneDaySubmitStillWorksForTheSignedInEmployee() throws Exception {
+        when(timesheetService.submitOneDay(eq(110L), any())).thenReturn(new TimesheetResponse(900L,
+                LocalDate.parse("2026-10-12"), new BigDecimal("7.50"), "Built the payslip screen", "PENDING",
+                Instant.parse("2026-10-12T12:00:00Z"), null));
+
+        mockMvc.perform(as(json(post("/api/employee/timesheets"), OLD_ONE_DAY), employeeToken))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING"));
-        verify(timesheetService).submit(eq(110L), eq(new TimesheetRequest(LocalDate.parse("2026-10-12"),
+        verify(timesheetService).submitOneDay(eq(110L), eq(new TimesheetRequest(LocalDate.parse("2026-10-12"),
                 new BigDecimal("7.5"), "Built the payslip screen")));
     }
 
     @Test
-    void serverRefusalOfANonWorkingDayReachesTheApp() throws Exception {
-        when(timesheetService.submit(eq(110L), any()))
-                .thenThrow(ApiException.invalid("date", "Sat 10 Oct 2026 is your weekly off."));
+    void oneDayRefusalsKeepTheirOldFields() throws Exception {
+        when(timesheetService.submitOneDay(eq(110L), any()))
+                .thenThrow(ApiException.conflict("date", "This week has already been submitted, so no more days can be added."));
 
-        mockMvc.perform(as(json(post("/api/employee/timesheets"), TIMESHEET), employeeToken))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.fields.date").value("Sat 10 Oct 2026 is your weekly off."));
+        mockMvc.perform(as(json(post("/api/employee/timesheets"), OLD_ONE_DAY), employeeToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.fields.date").value("This week has already been submitted, so no more days can be added."));
     }
 
     @Test
@@ -190,11 +255,20 @@ class ScheduleAndTimesheetControllerTest {
 
     @Test
     void hrAndAnonymousCannotUseEmployeeTimesheetEndpoints() throws Exception {
-        mockMvc.perform(as(json(post("/api/employee/timesheets"), TIMESHEET), hrToken)).andExpect(status().isForbidden());
-        mockMvc.perform(json(post("/api/employee/timesheets"), TIMESHEET)).andExpect(status().isUnauthorized());
+        mockMvc.perform(as(json(post("/api/employee/timesheets/week/submit"), WEEK), hrToken)).andExpect(status().isForbidden());
+        mockMvc.perform(as(json(put("/api/employee/timesheets/week/draft"), WEEK), hrToken)).andExpect(status().isForbidden());
+        mockMvc.perform(as(get("/api/employee/timesheets/week").param("start", "2026-10-05"), hrToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(as(json(post("/api/employee/timesheets"), OLD_ONE_DAY), hrToken)).andExpect(status().isForbidden());
+        mockMvc.perform(json(post("/api/employee/timesheets"), OLD_ONE_DAY)).andExpect(status().isUnauthorized());
+        mockMvc.perform(json(post("/api/employee/timesheets/week/submit"), WEEK)).andExpect(status().isUnauthorized());
+        mockMvc.perform(json(put("/api/employee/timesheets/week/draft"), WEEK)).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/employee/calendar").param("from", "2026-10-01").param("to", "2026-10-31"))
                 .andExpect(status().isUnauthorized());
-        verify(timesheetService, never()).submit(anyLong(), any());
+        verify(timesheetService, never()).submitWeek(anyLong(), any());
+        verify(timesheetService, never()).saveDraft(anyLong(), any());
+        verify(timesheetService, never()).weekMine(anyLong(), any());
+        verify(timesheetService, never()).submitOneDay(anyLong(), any());
     }
 
     @Test

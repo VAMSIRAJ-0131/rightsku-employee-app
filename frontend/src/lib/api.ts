@@ -117,8 +117,24 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+/**
+ * Shown when the server has no such endpoint at all. Spring's built-in 404
+ * reply ({"timestamp", "status", "error": "Not Found", "path"}) is not one of
+ * our messages: it usually means the backend is running older code.
+ */
+export const MISSING_ENDPOINT_MESSAGE =
+  'This feature is not available on the server. The backend may be running older code: restart it with the latest version.'
+
+/** Spring's own error reply has "path" and "timestamp"; our ApiExceptionHandler replies never do. */
+function isFrameworkErrorBody(body: unknown): boolean {
+  return isRecord(body) && typeof body.path === 'string' && 'timestamp' in body
+}
+
 function failure(response: Response, body: unknown): { ok: false; error: ApiError } {
   const kind = kindForStatus(response.status)
+  if (kind === 'not-found' && isFrameworkErrorBody(body)) {
+    return { ok: false, error: { kind, message: MISSING_ENDPOINT_MESSAGE, fields: {} } }
+  }
   const { message, fields } = readErrorBody(body)
   // Only our own short JSON messages are shown; 5xx and 401/403 always use fixed text.
   const useServerMessage =

@@ -3,9 +3,13 @@ package com.rightsku.employee_app;
 import jakarta.persistence.*;
 import java.time.Instant;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 /**
  * One row of the admin audit log (table audit_history, created in V1).
- * The optional JSON "details" column is not used yet, so it is not mapped.
+ * "details" is optional JSON, for example the previous and new value of a
+ * leave balance. It never holds passwords or other secrets.
  */
 @Entity
 @Table(name = "audit_history")
@@ -27,6 +31,10 @@ public class AuditEntry {
     @Column(name = "entity_id", length = 100)
     private String entityId;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private String details;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -39,6 +47,13 @@ public class AuditEntry {
         entry.action = action;
         entry.entityType = entityType;
         entry.entityId = entityId;
+        return entry;
+    }
+
+    /** The same, with a small JSON object of details (built by the caller from safe values only). */
+    public static AuditEntry of(Long actorUserId, String action, String entityType, String entityId, String detailsJson) {
+        AuditEntry entry = of(actorUserId, action, entityType, entityId);
+        entry.details = detailsJson;
         return entry;
     }
 
@@ -61,5 +76,9 @@ public class AuditEntry {
 
     public String getEntityId() {
         return entityId;
+    }
+
+    public String getDetails() {
+        return details;
     }
 }

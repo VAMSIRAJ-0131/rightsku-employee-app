@@ -36,7 +36,7 @@ public class WorkCalendarService {
             WorkScheduleRepository schedules,
             CompanyHolidayRepository holidays,
             @Value("${app.schedule.default-weekly-offs:SATURDAY,SUNDAY}") String defaultWeeklyOffs,
-            @Value("${app.schedule.default-hours-per-day:8}") BigDecimal defaultHoursPerDay) {
+            @Value("${app.schedule.default-hours-per-day:9}") BigDecimal defaultHoursPerDay) {
         this.schedules = schedules;
         this.holidays = holidays;
         Set<DayOfWeek> offs = parseDays(defaultWeeklyOffs);

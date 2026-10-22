@@ -1,20 +1,30 @@
 // Employee timesheet: one week at a time, a row per day with the day and date
 // on the left and the hours on the right. Only working days take hours;
-// weekly offs (from the HR schedule) and company holidays are greyed out.
-// The server applies the same rules and refuses anything else.
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+// weekly offs (from the HR schedule), company holidays and full days of
+// approved leave are greyed out.
+//
+// "Save" keeps the week as a draft (nothing goes to HR). "Submit for
+// approval" asks for confirmation and then sends the whole week at once.
+// The server works out the week's target and enforces every rule.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icons'
-import { Button, Card, Notice, Section, Spinner, StatusBadge, TopBar } from '../../components/ui'
+import { Button, Card, Notice, ProgressBar, Section, Spinner, StatusBadge, TopBar } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import { formatShortDate, monthLabel, toIsoDate } from '../../lib/format'
-import type { Timesheet } from '../../data/types'
+import { MAX_DAYS_BACK, MAX_HOURS_PER_DAY, MIN_HOURS_PER_DAY, weekStartOf } from '../../lib/workCalendar'
 import {
-  MAX_DAYS_BACK, MAX_HOURS_PER_DAY, MIN_HOURS_PER_DAY, buildWeek, defaultHours, getMyCalendar, hasWeekErrors, submitTimesheet,
-  validateWeek, weekStartOf,
-  type CalendarData, type TimesheetRecord, type WeekFormErrors, type WeekRow,
-} from '../../lib/workCalendar'
+  CONFIRM_SUBMIT_MESSAGE, createWeekActions, formatDayLong, formatHours, getMyWeek, saveWeekDraft, startingHours,
+  submitMyWeek, weekTotals,
+  type WeekActionResult, type WeekData, type WeekDayData, type WeekFormErrors,
+} from '../../lib/timesheetWeek'
 
 const NO_ERRORS: WeekFormErrors = { hours: {} }
+const STATUS_TEXT: Record<string, string> = {
+  NOT_STARTED: 'Not started', DRAFT: 'Draft', SUBMITTED: 'Submitted', ALREADY_SUBMITTED: 'Already submitted',
+}
+const STATUS_LABEL: Record<string, 'Pending' | 'Approved' | 'Rejected'> = {
+  PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected',
+}
 
 function shiftDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00`)
@@ -24,33 +34,48 @@ function shiftDays(iso: string, days: number): string {
 
 export default function TimesheetScreen({
   token,
-  timesheets,
+  historyWeeks,
   history,
   onBack,
   onSubmitted,
   onError,
 }: {
   token: string
-  /** The employee's own entries (for the summary and to show submitted days). */
-  timesheets: Timesheet[]
+  /** Number of weeks in the history list below. */
+  historyWeeks: number
   /** The history list, rendered by the parent so it looks the same everywhere. */
   history: ReactNode
   onBack: () => void
-  onSubmitted: (record: TimesheetRecord) => void
+  /** Called after the server confirmed a submission, so the history can reload. */
+  onSubmitted: () => void
   onError: (error: ApiError) => ApiError
 }) {
   const todayLocal = toIsoDate(new Date())
   const [weekStart, setWeekStart] = useState(() => weekStartOf(todayLocal))
-  const [calendar, setCalendar] = useState<CalendarData | null>(null)
+  const [week, setWeek] = useState<WeekData | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
   const [hours, setHours] = useState<Record<string, string>>({})
   const [description, setDescription] = useState('')
   const [errors, setErrors] = useState<WeekFormErrors>(NO_ERRORS)
-  const [formError, setFormError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState<string | null>(null)
+  const [busy, setBusy] = useState<'save' | 'submit' | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const answer = useRef<((confirmed: boolean) => void) | null>(null)
+
+  // One set of actions for the screen: it lets only one request run at a time.
+  const actions = useMemo(
+    () => createWeekActions({
+      saveDraft: (body) => saveWeekDraft(token, body),
+      submit: (body) => submitMyWeek(token, body),
+      confirm: () => new Promise<boolean>((resolve) => {
+        answer.current = resolve
+        setConfirming(true)
+      }),
+    }),
+    [token],
+  )
 
   // Open at the top, even when the home screen was scrolled down.
   useEffect(() => {
@@ -63,47 +88,40 @@ export default function TimesheetScreen({
     const controller = new AbortController()
     setLoading(true)
     setLoadError(null)
-    getMyCalendar(token, weekStart, weekEnd, controller.signal).then((result) => {
+    getMyWeek(token, weekStart, controller.signal).then((result) => {
       if (controller.signal.aborted) return
       setLoading(false)
-      if (result.ok) setCalendar(result.data)
+      if (result.ok) show(result.data)
       else setLoadError(onError(result.error).message)
     })
     return () => controller.abort()
-  }, [token, weekStart, weekEnd, retry, onError])
+  }, [token, weekStart, retry, onError])
 
-  const today = calendar?.today ?? todayLocal
-  const calendarDays = useMemo(
-    () => (calendar && calendar.from === weekStart ? calendar.days : []),
-    [calendar, weekStart],
-  )
-  const rows = useMemo(
-    () => buildWeek(weekStart, calendarDays, today, timesheets),
-    [weekStart, calendarDays, today, timesheets],
-  )
+  /** Shows a week from the server: its saved hours, description and status. */
+  function show(data: WeekData) {
+    setWeek(data)
+    setHours(startingHours(data))
+    setDescription(data.description ?? '')
+    setErrors(NO_ERRORS)
+  }
 
-  // Fill each open day with its scheduled hours (up to 9); the employee can change or clear them.
-  useEffect(() => {
-    if (!calendar || calendar.from !== weekStart) return
-    setHours((current) => {
-      const missing = rows.filter((row) => row.state === 'available' && current[row.iso] === undefined)
-      if (missing.length === 0) return current
-      const next = { ...current }
-      for (const row of missing) next[row.iso] = defaultHours(row)
-      return next
-    })
-  }, [calendar, weekStart, rows])
+  function goToWeek(next: string) {
+    setWeekStart(next)
+    setWeek(null)
+    setSuccess(null)
+  }
 
   const thisWeek = weekStartOf(todayLocal)
   const oldestWeek = weekStartOf(shiftDays(todayLocal, -MAX_DAYS_BACK))
-  const openRows = rows.filter((r) => r.state === 'available')
-  const weekTotal = rows.reduce((sum, r) => sum + (r.entry ? r.entry.hours : 0), 0)
-    + openRows.reduce((sum, r) => sum + (Number(hours[r.iso]) || 0), 0)
-  const workingDays = rows.filter((r) => r.state !== 'weekly-off' && r.state !== 'holiday').length
+  const current = week && week.weekStart === weekStart ? week : null
+  const totals = current ? weekTotals(current, hours) : null
+  // A week submitted as a whole, or one whose working days were all submitted one day at a time.
+  const submitted = current?.status === 'SUBMITTED' || current?.status === 'ALREADY_SUBMITTED'
+  const locked = !current || submitted || busy !== null || loading
 
   function setDayHours(iso: string, value: string) {
     setHours((h) => ({ ...h, [iso]: value }))
-    setSaved(null)
+    setSuccess(null)
     if (errors.hours[iso] || errors.form) {
       setErrors((e) => {
         const rest = { ...e.hours }
@@ -113,200 +131,274 @@ export default function TimesheetScreen({
     }
   }
 
-  async function submit(e: FormEvent) {
-    e.preventDefault()
-    if (saving) return
-    setFormError(null)
-    setSaved(null)
-    const { entries, errors: found } = validateWeek(rows, hours, description)
-    setErrors(found)
-    if (hasWeekErrors(found)) return
-
-    // One entry per day, through the existing API. Each day is checked again by the server.
-    setSaving(true)
-    const refused: Record<string, string> = {}
-    let sent = 0
-    let otherProblem: string | null = null
-    for (const entry of entries) {
-      const result = await submitTimesheet(token, { date: entry.date, hours: entry.hours, description })
-      if (result.ok) {
-        sent++
-        onSubmitted(result.data)
-        continue
-      }
-      const error = onError(result.error)
-      if (error.kind === 'unauthorized') break
-      const message = error.fields.date ?? error.fields.hours ?? error.fields.description
-      if (message) refused[entry.date] = message
-      else otherProblem = error.message
+  function handle(result: WeekActionResult) {
+    if (result.kind === 'saved' || result.kind === 'submitted') {
+      show(result.week)
+      setSuccess(result.message)
+      if (result.kind === 'submitted') onSubmitted()
+    } else if (result.kind === 'invalid') {
+      setErrors(result.errors)
+    } else if (result.kind === 'failed') {
+      onError(result.error)
+      setErrors(result.errors)
     }
-    setSaving(false)
+  }
 
-    setErrors({ hours: refused })
-    if (sent > 0) {
-      setSaved(`${sent} ${sent === 1 ? 'day' : 'days'} sent for approval.`)
-      setHours((h) => {
-        const next = { ...h }
-        for (const entry of entries) if (!refused[entry.date]) delete next[entry.date]
-        return next
-      })
-      if (Object.keys(refused).length === 0 && !otherProblem) setDescription('')
-    }
-    if (otherProblem) setFormError(otherProblem)
-    else if (Object.keys(refused).length > 0) setFormError('Some days were not sent. See the messages next to them.')
+  async function save() {
+    if (!current || actions.isBusy()) return
+    setSuccess(null)
+    setErrors(NO_ERRORS)
+    setBusy('save')
+    const result = await actions.save(current, hours, description)
+    setBusy(null)
+    handle(result)
+  }
+
+  async function submit() {
+    if (!current || actions.isBusy()) return
+    setSuccess(null)
+    setErrors(NO_ERRORS)
+    setBusy('submit')
+    const result = await actions.submit(current, hours, description)
+    setBusy(null)
+    handle(result)
+  }
+
+  function closeConfirm(confirmed: boolean) {
+    setConfirming(false)
+    answer.current?.(confirmed)
+    answer.current = null
   }
 
   return (
     <>
       <TopBar title="Timesheet" subtitle="Log your hours for the week" onBack={onBack} />
 
-      <form noValidate onSubmit={submit}>
+      <Section>
+        <Card className="flex items-center justify-between px-2 py-1">
+          <button
+            type="button"
+            onClick={() => goToWeek(shiftDays(weekStart, -7))}
+            disabled={weekStart <= oldestWeek || busy !== null}
+            aria-label="Previous week"
+            className="grid h-11 w-11 place-items-center rounded-full text-ink-soft hover:bg-mist-50 disabled:opacity-30"
+          >
+            <Icon name="arrowLeft" className="h-5 w-5" />
+          </button>
+          <div className="text-center" aria-live="polite">
+            <p className="tnum text-[15px] font-semibold text-ink">
+              {formatShortDate(weekStart)} – {formatShortDate(weekEnd)}
+            </p>
+            <p className="text-[12px] text-ink-muted">
+              {weekStart === thisWeek ? 'This week' : monthLabel(new Date(`${weekStart}T00:00:00`))}
+              {current && ` · ${STATUS_TEXT[current.status] ?? 'Not started'}`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => goToWeek(shiftDays(weekStart, 7))}
+            disabled={weekStart >= thisWeek || busy !== null}
+            aria-label="Next week"
+            className="grid h-11 w-11 place-items-center rounded-full text-ink-soft hover:bg-mist-50 disabled:opacity-30"
+          >
+            <Icon name="chevronRight" className="h-5 w-5" />
+          </button>
+        </Card>
+      </Section>
+
+      {loadError ? (
         <Section>
-          <Card className="flex items-center justify-between px-2 py-1">
-            <button
-              type="button"
-              onClick={() => setWeekStart((w) => shiftDays(w, -7))}
-              disabled={weekStart <= oldestWeek || saving}
-              aria-label="Previous week"
-              className="grid h-11 w-11 place-items-center rounded-full text-ink-soft hover:bg-mist-50 disabled:opacity-30"
-            >
-              <Icon name="arrowLeft" className="h-5 w-5" />
-            </button>
-            <div className="text-center" aria-live="polite">
-              <p className="tnum text-[15px] font-semibold text-ink">
-                {formatShortDate(weekStart)} – {formatShortDate(weekEnd)}
-              </p>
-              <p className="text-[12px] text-ink-muted">
-                {weekStart === thisWeek ? 'This week' : monthLabel(new Date(`${weekStart}T00:00:00`))}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setWeekStart((w) => shiftDays(w, 7))}
-              disabled={weekStart >= thisWeek || saving}
-              aria-label="Next week"
-              className="grid h-11 w-11 place-items-center rounded-full text-ink-soft hover:bg-mist-50 disabled:opacity-30"
-            >
-              <Icon name="chevronRight" className="h-5 w-5" />
-            </button>
+          <div className="space-y-3" role="alert">
+            <Notice tone="bad">{loadError}</Notice>
+            <Button variant="secondary" size="sm" onClick={() => setRetry((r) => r + 1)}>
+              Try again
+            </Button>
+          </div>
+        </Section>
+      ) : !current ? (
+        <Section>
+          <Card className="grid place-items-center gap-2 px-4 py-10 text-[13px] text-ink-muted">
+            <Spinner className="h-5 w-5 text-navy-700" />
+            Loading your week
           </Card>
         </Section>
+      ) : (
+        <>
+          {totals && <TargetCard week={current} totals={totals} />}
 
-        <Section>
-          {loadError ? (
-            <div className="space-y-3" role="alert">
-              <Notice tone="bad">{loadError}</Notice>
-              <Button variant="secondary" size="sm" onClick={() => setRetry((r) => r + 1)}>
-                Try again
-              </Button>
-            </div>
-          ) : (
+          <Section>
             <Card className="p-3">
               <div className="flex items-end justify-between gap-3 px-1 pb-2 text-[12px] text-ink-muted">
                 <span>Day and date</span>
                 <span className="w-[5.5rem] text-left">Hours</span>
               </div>
               <div className="relative space-y-2" aria-busy={loading}>
-                {rows.map((row) => (
+                {current.days.map((day) => (
                   <DayRow
-                    key={row.iso}
-                    row={row}
-                    value={hours[row.iso] ?? ''}
-                    error={errors.hours[row.iso]}
-                    disabled={row.disabled || saving || loading}
-                    onChange={(v) => setDayHours(row.iso, v)}
+                    key={day.date}
+                    day={day}
+                    isToday={day.date === current.today}
+                    value={hours[day.date] ?? ''}
+                    error={errors.hours[day.date]}
+                    disabled={!day.editable || locked}
+                    onChange={(v) => setDayHours(day.date, v)}
                   />
                 ))}
-                {loading && (
-                  <div className="absolute inset-0 grid place-items-center rounded-lg bg-white/60">
-                    <Spinner className="h-5 w-5 text-navy-700" />
-                  </div>
-                )}
               </div>
-              <div className="mt-3 flex items-center justify-between border-t border-line px-1 pt-3 text-[13px]">
-                <span className="text-ink-muted">
-                  {workingDays} working {workingDays === 1 ? 'day' : 'days'} · {MIN_HOURS_PER_DAY}–{MAX_HOURS_PER_DAY} h a day
-                </span>
-                <span className="tnum font-semibold text-ink">Total {weekTotal} h</span>
-              </div>
+              <p className="mt-3 border-t border-line px-1 pt-3 text-[12px] text-ink-muted">
+                {MIN_HOURS_PER_DAY}–{MAX_HOURS_PER_DAY} h a day in steps of 0.25. Leave a box empty to skip a day.
+              </p>
             </Card>
-          )}
-        </Section>
+          </Section>
 
-        <Section title="Work done">
-          <Card className="p-4">
-            <label className="block" htmlFor="ts-description">
-              <span className="text-[13px] font-medium text-ink-soft">Short description for these days</span>
-              <textarea
-                id="ts-description"
-                rows={3}
-                maxLength={500}
-                value={description}
-                onChange={(e) => {
-                  setDescription(e.target.value)
-                  if (errors.description) setErrors((er) => ({ ...er, description: undefined }))
-                }}
-                aria-invalid={!!errors.description}
-                className={`mt-1.5 w-full rounded-lg border bg-white px-4 py-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
-                  errors.description ? 'border-bad/50' : 'border-line-strong'
-                }`}
-              />
-              {errors.description && <span className="mt-1.5 block text-[12px] text-bad">{errors.description}</span>}
-            </label>
-          </Card>
-          {(errors.form || formError) && (
-            <div className="mt-3" role="alert">
-              <Notice tone="bad">{errors.form ?? formError}</Notice>
-            </div>
-          )}
-          {saved && (
-            <p className="mt-3 flex items-center gap-2 px-1 text-[13px] text-ok" role="status">
-              <Icon name="checkCircle" className="h-4 w-4" /> {saved}
-            </p>
-          )}
-          <Button type="submit" size="lg" disabled={saving || loading || openRows.length === 0} className="mt-3 w-full">
-            {saving ? (
-              <>
-                <Spinner /> Sending
-              </>
-            ) : openRows.length === 0 ? (
-              'Nothing to submit this week'
-            ) : (
-              'Submit for approval'
+          <Section title="Work done">
+            <Card className="p-4">
+              <label className="block" htmlFor="ts-description">
+                <span className="text-[13px] font-medium text-ink-soft">Short description for this week</span>
+                <textarea
+                  id="ts-description"
+                  rows={3}
+                  maxLength={500}
+                  value={description}
+                  disabled={locked}
+                  onChange={(e) => {
+                    setDescription(e.target.value)
+                    setSuccess(null)
+                    if (errors.description) setErrors((er) => ({ ...er, description: undefined }))
+                  }}
+                  aria-invalid={!!errors.description}
+                  className={`mt-1.5 w-full rounded-lg border bg-white px-4 py-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 disabled:bg-mist-50 disabled:text-ink-muted ${
+                    errors.description ? 'border-bad/50' : 'border-line-strong'
+                  }`}
+                />
+                {errors.description && <span className="mt-1.5 block text-[12px] text-bad">{errors.description}</span>}
+              </label>
+            </Card>
+
+            {errors.form && (
+              <div className="mt-3" role="alert">
+                <Notice tone="bad">{errors.form}</Notice>
+              </div>
             )}
-          </Button>
-          <p className="mt-2 px-1 text-[12px] leading-relaxed text-ink-muted">
-            Leave a box empty to skip that day. Weekly offs and company holidays can’t take hours.
-          </p>
-        </Section>
-      </form>
+            {success && (
+              <p className="mt-3 flex items-center gap-2 px-1 text-[13px] font-medium text-ok" role="status">
+                <Icon name="checkCircle" className="h-4 w-4" /> {success}
+              </p>
+            )}
 
-      <Section title={`History (${timesheets.length})`}>{history}</Section>
+            {submitted ? (
+              <p className="mt-3 flex items-center gap-2 px-1 text-[13px] text-ink-muted" role="status">
+                <Icon name="lock" className="h-4 w-4 shrink-0" />
+                {current.status === 'ALREADY_SUBMITTED'
+                  ? 'Already submitted: every working day of this week was sent for approval earlier. There is nothing to save or submit.'
+                  : `Sent for approval${current.submittedAt ? ` on ${formatShortDate(current.submittedAt.slice(0, 10))}` : ''}. This week can no longer be changed.`}
+              </p>
+            ) : (
+              <>
+                <div className="mt-3 grid grid-cols-[2fr_3fr] gap-2">
+                  <Button variant="secondary" size="lg" onClick={save} disabled={locked}>
+                    {busy === 'save' ? <><Spinner /> Saving</> : 'Save'}
+                  </Button>
+                  <Button size="lg" onClick={submit} disabled={locked}>
+                    {busy === 'submit' && !confirming ? <><Spinner /> Sending</> : 'Submit for approval'}
+                  </Button>
+                </div>
+                <p className="mt-2 px-1 text-[12px] leading-relaxed text-ink-muted">
+                  Save keeps a draft you can change later. Submit sends the whole week to HR
+                  {current.submitOpensOn && current.today < current.submitOpensOn
+                    ? `, from ${formatDayLong(current.submitOpensOn)}.`
+                    : '.'}
+                </p>
+              </>
+            )}
+          </Section>
+        </>
+      )}
+
+      <Section title={historyWeeks ? `History (${historyWeeks} ${historyWeeks === 1 ? 'week' : 'weeks'})` : 'History'}>{history}</Section>
+
+      {confirming && <ConfirmDialog onCancel={() => closeConfirm(false)} onConfirm={() => closeConfirm(true)} />}
     </>
   )
 }
 
-const NOTE: Record<WeekRow['state'], string> = {
-  available: '',
-  submitted: '',
-  'weekly-off': 'Weekly off',
-  holiday: 'Holiday',
-  future: 'Upcoming',
-  'too-old': 'Too far back',
+/* ---------- Expected, entered and remaining hours ---------- */
+
+function TargetCard({ week, totals }: { week: WeekData; totals: { expected: number; entered: number; remaining: number } }) {
+  const scheduled = Number(week.target.scheduledHours)
+  const holiday = Number(week.target.holidayHours)
+  const leave = Number(week.target.leaveHours)
+  const done = totals.remaining === 0 && totals.expected > 0
+  return (
+    <Section>
+      <Card className="p-4">
+        <dl className="grid grid-cols-3 gap-2 text-center">
+          <Figure label="Expected" value={totals.expected} />
+          <Figure label="Entered" value={totals.entered} />
+          <Figure label="Remaining" value={totals.remaining} tone={done ? 'ok' : totals.remaining > 0 ? 'warn' : 'plain'} />
+        </dl>
+        <div className="mt-3">
+          <ProgressBar value={totals.entered} max={totals.expected} />
+        </div>
+        <p className="mt-2.5 text-[12px] leading-relaxed text-ink-muted">
+          {holiday > 0 || leave > 0 ? (
+            <>
+              {formatHours(scheduled)} h scheduled
+              {holiday > 0 && ` − ${formatHours(holiday)} h holiday`}
+              {leave > 0 && ` − ${formatHours(leave)} h approved leave`}
+              {` = ${formatHours(totals.expected)} h expected.`}
+              {leave > 0 && ' Approved leave is not counted as hours worked.'}
+            </>
+          ) : (
+            `${formatHours(scheduled)} h scheduled this week.`
+          )}
+        </p>
+      </Card>
+    </Section>
+  )
+}
+
+function Figure({ label, value, tone = 'plain' }: { label: string; value: number; tone?: 'plain' | 'ok' | 'warn' }) {
+  const color = tone === 'ok' ? 'text-ok' : tone === 'warn' ? 'text-warn' : 'text-ink'
+  return (
+    <div>
+      <dt className="text-[12px] text-ink-muted">{label}</dt>
+      <dd className={`tnum mt-0.5 text-[20px] font-semibold ${color}`}>{formatHours(value)} h</dd>
+    </div>
+  )
+}
+
+/* ---------- One day ---------- */
+
+function noteFor(day: WeekDayData): string {
+  if (day.beforeJoining) return 'Before joining'
+  if (day.kind === 'HOLIDAY') return day.holidayName ?? 'Holiday'
+  if (day.kind === 'WEEKLY_OFF') return 'Weekly off'
+  if (day.leave === 'FULL_DAY') return 'Full-day leave (approved)'
+  if (day.leave === 'HALF_DAY') return `Half-day leave (approved) · ${formatHours(day.targetHours)} h`
+  return ''
+}
+
+function dayLabel(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`)
+  return `${d.toLocaleDateString('en-US', { weekday: 'long' })} · ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
 }
 
 function DayRow({
-  row, value, error, disabled, onChange,
+  day, isToday, value, error, disabled, onChange,
 }: {
-  row: WeekRow
+  day: WeekDayData
+  isToday: boolean
   value: string
   error?: string
   disabled: boolean
   onChange: (value: string) => void
 }) {
-  const id = `hours-${row.iso}`
-  const greyed = row.state === 'weekly-off' || row.state === 'holiday' || row.state === 'future' || row.state === 'too-old'
-  const note = row.state === 'holiday' && row.holidayName ? row.holidayName : NOTE[row.state]
+  const id = `hours-${day.date}`
+  const label = dayLabel(day.date)
+  const note = noteFor(day)
+  const status = day.entryStatus ? STATUS_LABEL[day.entryStatus] ?? 'Pending' : null
+  const greyed = !day.editable && !status
   return (
     <div>
       <div className="flex items-stretch gap-2">
@@ -314,20 +406,20 @@ function DayRow({
           htmlFor={id}
           className={`flex min-h-12 min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border px-3 py-2 ${
             greyed ? 'border-line bg-mist-50 text-ink-muted' : 'border-line-strong bg-white text-ink'
-          } ${row.isToday ? 'ring-1 ring-inset ring-navy-700/40' : ''}`}
+          } ${isToday ? 'ring-1 ring-inset ring-navy-700/40' : ''}`}
         >
           <span className="min-w-0">
-            <span className={`block truncate text-[15px] ${greyed ? '' : 'font-medium'}`}>{row.label}</span>
-            {!row.entry && note && <span className="block truncate text-[12px] leading-tight">{note}</span>}
+            <span className={`block truncate text-[15px] ${greyed ? '' : 'font-medium'}`}>{label}</span>
+            {note && <span className="block truncate text-[12px] leading-tight">{note}</span>}
           </span>
-          {row.entry && <StatusBadge status={row.entry.status} />}
+          {status && <StatusBadge status={status} />}
         </label>
-        {row.entry ? (
+        {status ? (
           <div
             className="tnum grid h-12 w-[5.5rem] shrink-0 place-items-center rounded-lg border border-line bg-mist-50 text-[15px] text-ink-soft"
-            aria-label={`${row.label}, ${row.entry.hours} hours submitted`}
+            aria-label={`${label}, ${formatHours(day.hours)} hours submitted`}
           >
-            {row.entry.hours}
+            {formatHours(day.hours)}
           </div>
         ) : (
           <input
@@ -337,11 +429,11 @@ function DayRow({
             min={MIN_HOURS_PER_DAY}
             max={MAX_HOURS_PER_DAY}
             step={0.25}
-            value={disabled && row.disabled ? '' : value}
+            value={day.editable ? value : ''}
             onChange={(e) => onChange(e.target.value)}
             disabled={disabled}
-            placeholder={row.disabled ? '–' : '0'}
-            aria-label={`Hours for ${row.label}${row.disabled ? ` (${note.toLowerCase()})` : ''}`}
+            placeholder={day.editable ? '0' : '–'}
+            aria-label={`Hours for ${label}${note ? ` (${note.toLowerCase()})` : ''}`}
             aria-invalid={!!error}
             className={`tnum h-12 w-[5.5rem] shrink-0 rounded-lg border px-3 text-[15px] outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 disabled:cursor-not-allowed disabled:bg-mist-50 disabled:text-ink-muted ${
               error ? 'border-bad/60 bg-white text-ink' : 'border-line-strong bg-white text-ink'
@@ -354,6 +446,61 @@ function DayRow({
           {error}
         </p>
       )}
+    </div>
+  )
+}
+
+/* ---------- "Are you sure?" ---------- */
+
+function ConfirmDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  const cancelRef = useRef<HTMLButtonElement | null>(null)
+  const [answered, setAnswered] = useState(false)
+
+  useEffect(() => {
+    cancelRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel])
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-end bg-navy-950/40 p-4 sm:place-items-center">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-submit-title"
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+      >
+        <p id="confirm-submit-title" className="text-[16px] font-semibold leading-snug text-ink">
+          {CONFIRM_SUBMIT_MESSAGE}
+        </p>
+        <p className="mt-1.5 text-[13px] text-ink-muted">After submitting, this week can’t be changed.</p>
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <button
+            ref={cancelRef}
+            type="button"
+            onClick={onCancel}
+            disabled={answered}
+            className="h-12 rounded-lg bg-white text-[15px] font-semibold text-navy-900 ring-1 ring-inset ring-line-strong hover:bg-mist-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (answered) return // a double tap confirms only once
+              setAnswered(true)
+              onConfirm()
+            }}
+            disabled={answered}
+            className="h-12 rounded-lg bg-navy-900 text-[15px] font-semibold text-white hover:bg-navy-800 disabled:opacity-60"
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

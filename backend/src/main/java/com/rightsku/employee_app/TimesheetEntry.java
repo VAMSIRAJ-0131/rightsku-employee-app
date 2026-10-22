@@ -5,12 +5,17 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 
-/** One day's timesheet entry submitted by an employee (table timesheet_entries, V6). */
+/**
+ * One day's timesheet entry submitted by an employee (table timesheet_entries,
+ * V6). HR reviews it (V8): APPROVED or REJECTED, with who, when and a note.
+ */
 @Entity
 @Table(name = "timesheet_entries")
 public class TimesheetEntry {
 
     public static final String STATUS_PENDING = "PENDING";
+    public static final String STATUS_APPROVED = "APPROVED";
+    public static final String STATUS_REJECTED = "REJECTED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -30,6 +35,15 @@ public class TimesheetEntry {
 
     @Column(nullable = false, length = 20)
     private String status;
+
+    @Column(name = "reviewed_by")
+    private Long reviewedBy;
+
+    @Column(name = "reviewed_at")
+    private Instant reviewedAt;
+
+    @Column(name = "review_note", length = 500)
+    private String reviewNote;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -88,5 +102,17 @@ public class TimesheetEntry {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Long getReviewedBy() {
+        return reviewedBy;
+    }
+
+    public Instant getReviewedAt() {
+        return reviewedAt;
+    }
+
+    public String getReviewNote() {
+        return reviewNote;
     }
 }

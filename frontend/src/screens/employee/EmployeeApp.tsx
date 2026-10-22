@@ -16,6 +16,10 @@ import { downloadMyDocument, listMyDocuments, toEmployeeDocument } from '../../l
 import { INITIAL_EMPLOYEE_NAV, employeeNav, type EmployeeSubScreen, type EmployeeTab } from '../../lib/employeeNav'
 import { MAX_DAYS_BACK, listMyTimesheets, toTimesheet } from '../../lib/workCalendar'
 import TimesheetScreen from './TimesheetScreen'
+import LeaveScreen from './LeaveScreen'
+import { getMyLeaveBalances, getMyLeaveRequests, toLeaveBalance, toLeaveRequest, type LeaveBalanceRecord } from '../../lib/leave'
+import WeeklyTimesheetHistory from './WeeklyTimesheetHistory'
+import { weekCount } from '../../lib/timesheetHistory'
 import ChangePasswordScreen from '../shared/ChangePasswordScreen'
 
 type Tab = EmployeeTab
@@ -42,7 +46,7 @@ export default function EmployeeApp({
   /** The password was changed: every session has ended, so the app returns to sign-in. */
   onPasswordChanged: () => void
 }) {
-  const { leaves, notifications, leaveBalance } = data
+  const { notifications } = data
   const [nav, dispatch] = useReducer(employeeNav, INITIAL_EMPLOYEE_NAV)
   const { tab, sub } = nav
   const [requestsView, setRequestsView] = useState<'timesheets' | 'leaves'>('timesheets')
@@ -51,6 +55,9 @@ export default function EmployeeApp({
   const [timesheetState, setTimesheetState] = useState<Loaded<Timesheet>>({ status: 'loading' })
   const [docState, setDocState] = useState<Loaded<EmployeeDocument>>({ status: 'loading' })
   const [version, setVersion] = useState(0)
+  const [leaveState, setLeaveState] = useState<Loaded<LeaveRequest>>({ status: 'loading' })
+  const [balanceRecords, setBalanceRecords] = useState<LeaveBalanceRecord[] | null>(null)
+  const [balanceError, setBalanceError] = useState<string | null>(null)
 
   /** Shared handling for a failed request: sign out on 401, otherwise keep the message. */
   const handleError = useCallback(
@@ -86,11 +93,32 @@ export default function EmployeeApp({
     return () => controller.abort()
   }, [token, user.id, version, handleError])
 
+  // The employee's own leave balance (set by HR) and leave requests.
+  useEffect(() => {
+    const controller = new AbortController()
+    getMyLeaveBalances(token, controller.signal).then((result) => {
+      if (controller.signal.aborted) return
+      if (result.ok) {
+        setBalanceRecords(result.data)
+        setBalanceError(null)
+      } else setBalanceError(handleError(result.error).message)
+    })
+    getMyLeaveRequests(token, controller.signal).then((result) => {
+      if (controller.signal.aborted) return
+      if (result.ok) setLeaveState({ status: 'ready', items: result.data.map((r) => toLeaveRequest(r, user.id)) })
+      else setLeaveState({ status: 'error', message: handleError(result.error).message })
+    })
+    return () => controller.abort()
+  }, [token, user.id, version, handleError])
+
   const myTimesheets = timesheetState.status === 'ready' ? timesheetState.items : []
-  const myLeaves = leaves.filter((l) => l.employeeId === user.id)
+  const myLeaves = leaveState.status === 'ready' ? leaveState.items : []
+  const leaveBalance: LeaveBalance[] = balanceRecords ? balanceRecords.map(toLeaveBalance) : []
   const myDocs = docState.status === 'ready' ? docState.items : []
   const unread = notifications.filter((n) => !n.read).length
   const pendingTs = myTimesheets.filter((t) => t.status === 'Pending')
+  // Requests waiting for HR: timesheets count per week (one weekly submission), leave per request.
+  const pendingTsWeeks = weekCount(pendingTs)
   const pendingLeaves = myLeaves.filter((l) => l.status === 'Pending')
   const payslips = myDocs.filter((d) => d.type === 'Payslip')
 
@@ -116,13 +144,22 @@ export default function EmployeeApp({
     }
   }
 
+  const leaveHistory =
+    leaveState.status === 'error' ? (
+      <LoadError message={leaveState.message} onRetry={() => setVersion((v) => v + 1)} />
+    ) : leaveState.status === 'loading' ? (
+      <LoadingCard label="Loading leave requests" />
+    ) : (
+      <LeaveList items={myLeaves} />
+    )
+
   const timesheetHistory =
     timesheetState.status === 'error' ? (
       <LoadError message={timesheetState.message} onRetry={() => setVersion((v) => v + 1)} />
     ) : timesheetState.status === 'loading' ? (
       <LoadingCard label="Loading timesheets" />
     ) : (
-      <TimesheetList items={myTimesheets} />
+      <WeeklyTimesheetHistory items={myTimesheets} />
     )
 
   let screen: ReactNode
@@ -140,51 +177,29 @@ export default function EmployeeApp({
       />
     )
   } else if (sub === 'timesheet') {
+    // The screen shows its own success message; after a submission the history reloads.
     screen = (
       <TimesheetScreen
         token={token}
-        timesheets={myTimesheets}
+        historyWeeks={weekCount(myTimesheets)}
         history={timesheetHistory}
         onBack={() => setSub(null)}
         onError={handleError}
-        onSubmitted={(record) => {
-          setTimesheetState((s) =>
-            s.status === 'ready' ? { status: 'ready', items: [toTimesheet(record, user.id), ...s.items] } : s,
-          )
-          show('Timesheet sent for approval.', 'success')
-        }}
+        onSubmitted={() => setVersion((v) => v + 1)}
       />
     )
   } else if (sub === 'leave') {
     screen = (
-      <>
-        <TopBar title="Leave" subtitle="Balance and applications" onBack={() => setSub(null)} />
-        <Section title="Balance">
-          {leaveBalance.length === 0 ? (
-            <Notice>Your leave balance will appear here once HR sets it up.</Notice>
-          ) : (
-          <Card className="divide-y divide-line">
-            {leaveBalance.map((b) => (
-              <div key={b.type} className="px-4 py-3.5">
-                <div className="mb-2 flex items-baseline justify-between">
-                  <span className="text-[14px] font-medium text-ink">{b.type} leave</span>
-                  <span className="tnum text-[13px] text-ink-muted">
-                    <span className="text-[15px] font-semibold text-ink">{b.left}</span> of {b.total} days left
-                  </span>
-                </div>
-                <ProgressBar value={b.left} max={b.total} />
-              </div>
-            ))}
-          </Card>
-          )}
-        </Section>
-        <Section title="Apply for leave">
-          <Notice>The application form for leave type, dates and reason arrives in Phase 2.</Notice>
-        </Section>
-        <Section title="History">
-          <LeaveList items={myLeaves} />
-        </Section>
-      </>
+      <LeaveScreen
+        token={token}
+        balances={balanceRecords}
+        balanceError={balanceError}
+        history={leaveHistory}
+        onBack={() => setSub(null)}
+        onError={handleError}
+        onRetry={() => setVersion((v) => v + 1)}
+        onSubmitted={() => setVersion((v) => v + 1)}
+      />
     )
   } else if (sub === 'payslips') {
     const [latest, ...older] = payslips
@@ -253,7 +268,7 @@ export default function EmployeeApp({
         unread={unread}
         myTimesheets={myTimesheets}
         myDocs={myDocs}
-        pendingTsCount={pendingTs.length}
+        pendingTsCount={pendingTsWeeks}
         pendingLeaveCount={pendingLeaves.length}
         payslips={payslips}
         leaveBalance={leaveBalance}
@@ -271,7 +286,7 @@ export default function EmployeeApp({
         <Section>
           <Segmented
             options={[
-              { id: 'timesheets', label: 'Timesheets', count: pendingTs.length },
+              { id: 'timesheets', label: 'Timesheets', count: pendingTsWeeks },
               { id: 'leaves', label: 'Leave', count: pendingLeaves.length },
             ]}
             value={requestsView}
@@ -280,7 +295,7 @@ export default function EmployeeApp({
           <p className="mt-2 px-1 text-[12px] text-ink-muted">Counts show requests waiting for HR.</p>
         </Section>
         <Section title={requestsView === 'timesheets' ? 'Timesheets' : 'Leave applications'}>
-          {requestsView === 'timesheets' ? timesheetHistory : <LeaveList items={myLeaves} />}
+          {requestsView === 'timesheets' ? timesheetHistory : leaveHistory}
         </Section>
       </>
     )
@@ -357,7 +372,7 @@ export default function EmployeeApp({
       <BottomNav
         items={[
           { id: 'home', label: 'Home', icon: 'home' },
-          { id: 'requests', label: 'Requests', icon: 'list', badge: pendingTs.length + pendingLeaves.length },
+          { id: 'requests', label: 'Requests', icon: 'list', badge: pendingTsWeeks + pendingLeaves.length },
           { id: 'documents', label: 'Documents', icon: 'folder' },
           { id: 'profile', label: 'Profile', icon: 'user' },
         ]}
@@ -614,32 +629,6 @@ function TextLink({ children, onClick }: { children: ReactNode; onClick: () => v
     <button onClick={onClick} className="-my-2 -mr-2 rounded-md px-2 py-2 text-[13px] font-semibold text-navy-700 hover:bg-mist-50">
       {children}
     </button>
-  )
-}
-
-function TimesheetList({ items }: { items: Timesheet[] }) {
-  if (items.length === 0)
-    return <EmptyState icon="clock" title="No timesheets yet" message="Entries you submit will appear here with their approval status." />
-  return (
-    <List>
-      {items.map((t) => (
-        <div key={t.id} className="px-4 py-3.5">
-          <div className="flex items-center justify-between gap-3">
-            <p className="tnum text-[15px] font-medium text-ink">
-              {formatShortDate(t.date)}
-              <span className="ml-2 font-normal text-ink-muted">{t.hours} h</span>
-            </p>
-            <StatusBadge status={t.status} />
-          </div>
-          <p className="mt-1 truncate text-[13px] text-ink-muted">{t.description}</p>
-          {t.status === 'Rejected' && t.remark && (
-            <div className="mt-2.5 rounded-md border-l-2 border-bad bg-bad-soft px-3 py-2 text-[12px] leading-relaxed text-bad">
-              <span className="font-semibold">HR note:</span> {t.remark}
-            </div>
-          )}
-        </div>
-      ))}
-    </List>
   )
 }
 

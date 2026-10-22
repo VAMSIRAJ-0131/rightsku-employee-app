@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Icon } from '../components/Icons'
-import { BrandMark, Button, Notice, Spinner } from '../components/ui'
+import { Logo } from '../components/Logo'
+import { Button, Notice, Spinner } from '../components/ui'
 import { checkLoginInput, login, loginErrorMessage, type AuthSession } from '../lib/auth'
 
 const inputCls =
@@ -52,8 +53,14 @@ export default function Login({
     <div className="flex min-h-dvh flex-col bg-canvas">
       {/* Brand panel */}
       <div className="bg-navy-900 pt-[env(safe-area-inset-top)]">
-        <div className="mx-auto w-full max-w-md px-6 pb-16 pt-8">
-          <BrandMark tone="light" />
+        {/* The official logo (the same Logo component and image as the original
+            logo login), unchanged, straight on the navy background. It has its
+            own full-width row, so it is centered on the whole page, not just
+            within the narrower text column below. */}
+        <div className="flex w-full justify-center px-6 pt-8">
+          <Logo className="h-14 sm:h-[72px]" />
+        </div>
+        <div className="mx-auto w-full max-w-md px-6 pb-16">
           <h1 className="mt-12 text-[28px] font-semibold leading-tight tracking-tight text-white">Sign in to your workplace</h1>
           <p className="mt-2 max-w-72 text-[14px] leading-relaxed text-mist-300">
             Timesheets, leave, payslips and documents for RIGHTSKU Solutions Private Limited.

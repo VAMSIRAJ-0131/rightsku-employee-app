@@ -11,6 +11,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -49,10 +50,41 @@ public class EmployeeTimesheetController {
         return timesheetService.listMine(userId(jwt), from, to);
     }
 
+    /**
+     * One week (start = its Monday): days, saved hours, status and the
+     * expected, entered and remaining hours.
+     */
+    @GetMapping("/timesheets/week")
+    public WeekTimesheetResponse week(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+            @AuthenticationPrincipal Jwt jwt) {
+        return timesheetService.weekMine(userId(jwt), start);
+    }
+
+    /** "Save": keeps the week as a draft. Nothing is sent for approval. */
+    @PutMapping("/timesheets/week/draft")
+    public WeekTimesheetResponse saveDraft(@Valid @RequestBody WeekTimesheetRequest request, @AuthenticationPrincipal Jwt jwt) {
+        return timesheetService.saveDraft(userId(jwt), request);
+    }
+
+    /** "Submit for approval": the whole week in one step. */
+    @PostMapping("/timesheets/week/submit")
+    public WeekTimesheetResponse submitWeek(@Valid @RequestBody WeekTimesheetRequest request, @AuthenticationPrincipal Jwt jwt) {
+        return timesheetService.submitWeek(userId(jwt), request);
+    }
+
+    /**
+     * The older one-day submit, kept working for app versions installed
+     * before weekly submission. Each day gets the same checks as the weekly
+     * screen (working day, leave, 1-9 hours, ...), and a week that was
+     * already submitted as a whole can't be added to. It can't check the
+     * weekly target: one day at a time never reaches it. To be switched off
+     * once every installed app uses weekly submission.
+     */
     @PostMapping("/timesheets")
     @ResponseStatus(HttpStatus.CREATED)
     public TimesheetResponse submit(@Valid @RequestBody TimesheetRequest request, @AuthenticationPrincipal Jwt jwt) {
-        return timesheetService.submit(userId(jwt), request);
+        return timesheetService.submitOneDay(userId(jwt), request);
     }
 
     private static long userId(Jwt jwt) {

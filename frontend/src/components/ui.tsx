@@ -52,6 +52,23 @@ export function AppHeader({ start }: { start: ReactNode }) {
   )
 }
 
+/**
+ * Header with the RIGHTSKU logo exactly in the middle (HR/Admin home). The
+ * two outer columns always have the same width, so the logo stays centered
+ * whatever is on the left (start) or right (end).
+ */
+export function CenteredHeader({ start, end }: { start: ReactNode; end?: ReactNode }) {
+  return (
+    <header className="border-b border-line bg-white pt-[env(safe-area-inset-top)]">
+      <div className="grid h-16 grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 sm:px-4">
+        <div className="flex min-w-0 items-center justify-start">{start}</div>
+        <Logo className="h-7 min-[380px]:h-8 sm:h-9" />
+        <div className="flex min-w-0 items-center justify-end">{end}</div>
+      </div>
+    </header>
+  )
+}
+
 /** The user's initials as a button (for example, the header shortcut to the profile). */
 export function AvatarButton({ name, label, onClick }: { name: string; label: string; onClick: () => void }) {
   return (
@@ -230,7 +247,7 @@ export function DetailRow({ icon, label, value }: { icon?: IconName; label: stri
 
 /* ---------- Status, notices, empty and loading states ---------- */
 
-type BadgeStatus = Status | 'Active' | 'Inactive' | 'Available' | 'Not issued'
+type BadgeStatus = Status | 'Mixed' | 'Active' | 'Inactive' | 'Available' | 'Not issued'
 
 export function StatusBadge({ status }: { status: BadgeStatus }) {
   const styles: Record<BadgeStatus, { box: string; dot: string }> = {
@@ -239,6 +256,7 @@ export function StatusBadge({ status }: { status: BadgeStatus }) {
     Active: { box: 'bg-ok-soft text-ok', dot: 'bg-ok' },
     Available: { box: 'bg-ok-soft text-ok', dot: 'bg-ok' },
     Rejected: { box: 'bg-bad-soft text-bad', dot: 'bg-bad' },
+    Mixed: { box: 'bg-mist-50 text-navy-700 ring-1 ring-inset ring-mist-100', dot: 'bg-navy-700' },
     Inactive: { box: 'bg-mist-50 text-ink-muted', dot: 'bg-ink-muted' },
     'Not issued': { box: 'bg-mist-50 text-ink-muted', dot: 'bg-mist-300' },
   }

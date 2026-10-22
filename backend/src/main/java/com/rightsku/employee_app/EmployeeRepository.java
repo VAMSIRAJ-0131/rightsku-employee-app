@@ -11,7 +11,11 @@ import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSpecificationExecutor<Employee> {
 
@@ -21,6 +25,15 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSp
     Optional<Employee> findByUser_Id(Long userId);
 
     long countByEmploymentStatus(String employmentStatus);
+
+    /**
+     * The employee row, locked until the transaction ends. Leave actions for
+     * one employee (apply, approve, change balance) take this lock first, so
+     * they run one after the other and can never overbook the balance.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT e FROM Employee e WHERE e.id = :id")
+    Optional<Employee> lockById(@Param("id") Long id);
 
     /** Next number for an auto-generated Employee ID (sequence created in V3). */
     @Query(value = "SELECT nextval('employee_code_seq')", nativeQuery = true)
