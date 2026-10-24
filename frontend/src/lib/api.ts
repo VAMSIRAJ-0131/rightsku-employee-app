@@ -77,6 +77,13 @@ interface RequestOptions {
   signal?: AbortSignal
 }
 
+// Remote testing through a free ngrok tunnel: without this header ngrok answers
+// app (browser-like) GET requests with its own warning page instead of the API.
+// Sent only when the build's API address is an ngrok one.
+const NGROK_HEADERS: Record<string, string> = /\.ngrok(-free)?\.(app|dev|io)$/.test(API_BASE.replace(/^https?:\/\//, '').split(/[/:]/)[0])
+  ? { 'ngrok-skip-browser-warning': '1' }
+  : {}
+
 /** Sends the request; returns the response, or null when there was no response at all. */
 async function send(path: string, options: RequestOptions, accept: string): Promise<Response | null> {
   const controller = new AbortController()
@@ -92,6 +99,7 @@ async function send(path: string, options: RequestOptions, accept: string): Prom
       headers: {
         Accept: accept,
         Authorization: `Bearer ${options.token}`,
+        ...NGROK_HEADERS,
         // For FormData the browser sets the multipart Content-Type (with its boundary) itself.
         ...(hasJson ? { 'Content-Type': 'application/json' } : {}),
       },
