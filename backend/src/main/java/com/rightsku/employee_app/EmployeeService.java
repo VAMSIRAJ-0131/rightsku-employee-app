@@ -38,15 +38,19 @@ public class EmployeeService {
     private final AuditEntryRepository audit;
     private final PasswordEncoder passwordEncoder;
 
+    private final CompanyAddressRepository addresses;
+
     public EmployeeService(
             EmployeeRepository employees,
             AppUserRepository users,
             AuditEntryRepository audit,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            CompanyAddressRepository addresses) {
         this.employees = employees;
         this.users = users;
         this.audit = audit;
         this.passwordEncoder = passwordEncoder;
+        this.addresses = addresses;
     }
 
     /* ---------- Read ---------- */
@@ -107,6 +111,8 @@ public class EmployeeService {
         Employee employee = Employee.create(account, code, details(
                 request.firstName(), request.lastName(), request.phone(),
                 request.department(), request.jobTitle(), request.joiningDate()));
+        employee.applyProfile(checkGender(request.gender()), checkPrefix(request.namePrefix()),
+                checkAddress(request.companyAddressId(), null));
 
         try {
             users.saveAndFlush(account);
@@ -139,6 +145,8 @@ public class EmployeeService {
         employee.apply(details(
                 request.firstName(), request.lastName(), request.phone(),
                 request.department(), request.jobTitle(), request.joiningDate()));
+        employee.applyProfile(checkGender(request.gender()), checkPrefix(request.namePrefix()),
+                checkAddress(request.companyAddressId(), employee.getCompanyAddressId()));
 
         try {
             employees.saveAndFlush(employee);
@@ -253,6 +261,45 @@ public class EmployeeService {
         return new Employee.EmployeeDetails(
                 firstName.trim(), lastName.trim(),
                 trimToNull(phone), trimToNull(department), trimToNull(jobTitle), joiningDate);
+    }
+
+    /** MALE or FEMALE (any case), or null when not given. */
+    static String checkGender(String value) {
+        String v = trimToNull(value);
+        if (v == null) {
+            return null;
+        }
+        v = v.toUpperCase(Locale.ROOT);
+        if (!v.equals("MALE") && !v.equals("FEMALE")) {
+            throw ApiException.invalid("gender", "Choose Male or Female.");
+        }
+        return v;
+    }
+
+    /** MR, MS or MRS (any case, with or without the dot), or null when not given. */
+    static String checkPrefix(String value) {
+        String v = trimToNull(value);
+        if (v == null) {
+            return null;
+        }
+        v = v.replace(".", "").toUpperCase(Locale.ROOT);
+        if (!v.equals("MR") && !v.equals("MS") && !v.equals("MRS")) {
+            throw ApiException.invalid("namePrefix", "Choose Mr., Ms. or Mrs.");
+        }
+        return v;
+    }
+
+    /** An active company address, or the one the employee already has (even if it was made inactive since). */
+    private Long checkAddress(Long id, Long current) {
+        if (id == null || id.equals(current)) {
+            return id;
+        }
+        CompanyAddress address = addresses.findById(id)
+                .orElseThrow(() -> ApiException.invalid("companyAddressId", "Choose one of the company addresses."));
+        if (!address.isActive()) {
+            throw ApiException.invalid("companyAddressId", "This office address is no longer in use. Choose another.");
+        }
+        return id;
     }
 
     private static String normalizeEmail(String email) {

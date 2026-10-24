@@ -68,6 +68,9 @@ class EmployeeControllerTest {
     private EmployeePhotoService photoService;
 
     @MockitoBean
+    private CompanyService companyService;
+
+    @MockitoBean
     private AppUserRepository appUserRepository;
 
     private String hrToken;
@@ -89,7 +92,7 @@ class EmployeeControllerTest {
     private static EmployeeResponse sample(long id, String status) {
         return new EmployeeResponse(id, "EMP010", "Ravi", "Kumar", "ravi@rightsku.com", null, "Engineering",
                 null, LocalDate.of(2026, 10, 1), status, Instant.parse("2026-10-14T09:00:00Z"),
-                Instant.parse("2026-10-14T09:00:00Z"));
+                Instant.parse("2026-10-14T09:00:00Z"), null, null, "Ravi Kumar", null);
     }
 
     private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder withToken(

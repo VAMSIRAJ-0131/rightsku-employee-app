@@ -1,0 +1,114 @@
+# RIGHTSKU Employee App production stack for one small VPS.
+#
+#   internet --443/80--> caddy --(web network)--> backend --(db network)--> postgres
+#
+# Only Caddy publishes ports. PostgreSQL is on an internal-only network: it is
+# not reachable from the internet, from the host's network, or even by Caddy.
+# Secrets come from deploy/.env on the server (never committed); see
+# .env.example and README.md.
+
+name: rightsku
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rightsku_employee
+      POSTGRES_USER: rightsku
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    # Sized for a 4 GB server shared with the backend.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - max_connections=40
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - db
+    shm_size: 128mb
+    mem_limit: 1g
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rightsku -d rightsku_employee"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging: *logging
+
+  backend:
+    build: ../backend
+    image: rightsku-backend:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # JWT_SECRET, the one-time HR bootstrap and the optional SMTP settings.
+    env_file: .env
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/rightsku_employee
+      SPRING_DATASOURCE_USERNAME: rightsku
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+      # Caddy is in front: use the phone's real address for the login rate limit.
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+      # Only the Android app (no web login in production).
+      APP_CORS_ALLOWED_ORIGINS: https://localhost,capacitor://localhost
+    networks:
+      - db
+      - web
+    mem_limit: 1280m
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
+  caddy:
+    image: caddy:2.10
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-api.rightsku.com}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+    mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
+networks:
+  # No route to the outside world: only the backend can reach the database.
+  db:
+    internal: true
+  web: {}
+
+volumes:
+  pgdata: {}
+  caddy_data: {}
+  caddy_config: {}

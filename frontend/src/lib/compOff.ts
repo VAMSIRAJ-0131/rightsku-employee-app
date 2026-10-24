@@ -10,13 +10,18 @@ import { days } from './leave'
 
 export interface CompOffAdjustmentRecord {
   id: number
-  /** MANUAL: HR's change with a reason. LEAVE_APPROVED: days taken off by an approved request. */
-  source: 'MANUAL' | 'LEAVE_APPROVED' | string
+  /**
+   * MANUAL: HR's correction with a reason. LEAVE_APPROVED: days taken off by
+   * approved Comp-Off leave. COMP_OFF_EARNED: an approved Comp-Off request.
+   */
+  source: 'MANUAL' | 'LEAVE_APPROVED' | 'COMP_OFF_EARNED' | string
   changeDays: number | string
   balanceBefore: number | string
   balanceAfter: number | string
   reason: string
   leaveRequestId: number | null
+  /** The approved Comp-Off request this credit came from (older servers leave it out). */
+  compOffRequestId?: number | null
   changedBy: string | null
   changedAt: string | null
 }

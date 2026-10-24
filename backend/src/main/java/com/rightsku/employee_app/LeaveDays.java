@@ -16,8 +16,15 @@ public interface LeaveDays {
 
     enum Status { PENDING, APPROVED, REJECTED }
 
-    /** One day of leave. A leave of several days is one record per day. */
-    record LeaveDay(LocalDate date, Portion portion, Status status) {
+    /**
+     * One day of leave. A leave of several days is one record per day.
+     * leaveType is the request's type (CASUAL, SICK, EARNED, COMP_OFF), or null when unknown.
+     */
+    record LeaveDay(LocalDate date, Portion portion, Status status, String leaveType) {
+
+        public LeaveDay(LocalDate date, Portion portion, Status status) {
+            this(date, portion, status, null);
+        }
     }
 
     /** All of the employee's leave days between from and to (both included), any status. */

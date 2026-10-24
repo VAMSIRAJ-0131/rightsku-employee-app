@@ -199,10 +199,11 @@ class WeeklyTimesheetDatabaseTest {
                 + "WHERE table_schema = current_schema() AND table_name IN ('timesheet_weeks', 'timesheet_draft_days') "
                 + "ORDER BY table_name", String.class))
                 .containsExactly("timesheet_draft_days", "timesheet_weeks");
-        // timesheet_entries is unchanged from V6.
+        // V7 left timesheet_entries as V6 made it (V8 later added only the three review columns at the end).
         assertThat(jdbc.queryForList("SELECT column_name FROM information_schema.columns "
                 + "WHERE table_schema = current_schema() AND table_name = 'timesheet_entries' ORDER BY ordinal_position", String.class))
-                .containsExactly("id", "employee_id", "work_date", "hours", "description", "status", "created_at", "updated_at");
+                .containsExactly("id", "employee_id", "work_date", "hours", "description", "status", "created_at", "updated_at",
+                        "reviewed_by", "reviewed_at", "review_note");
 
         // The new rules hold: a week starts on a Monday; one row per employee and week; SUBMITTED needs a time.
         LocalDate monday = TimesheetService.mondayOf(LocalDate.now(clock)).minusWeeks(2);

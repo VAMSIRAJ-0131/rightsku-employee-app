@@ -19,17 +19,25 @@ export function toIsoDate(d: Date): string {
   return `${d.getFullYear()}-${m}-${day}`
 }
 
-/** Monday to Friday of the current week, as ISO dates. */
-export function currentWorkWeek(today = new Date()): { iso: string; label: string; isToday: boolean }[] {
+/**
+ * The working days of the current week (Monday first), as ISO dates.
+ * weeklyOffs: the employee's weekly off days by English name ("Tuesday"), from
+ * their HR schedule; while it is not known yet (null) all seven days are shown.
+ */
+export function currentWorkWeek(
+  today = new Date(), weeklyOffs: string[] | null = null,
+): { iso: string; label: string; isToday: boolean }[] {
   const monday = new Date(today)
   const offset = (today.getDay() + 6) % 7
   monday.setDate(today.getDate() - offset)
   const todayIso = toIsoDate(today)
-  return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map((label, i) => {
+  const names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+  return names.flatMap((name, i) => {
+    if (weeklyOffs?.includes(name)) return []
     const d = new Date(monday)
     d.setDate(monday.getDate() + i)
     const iso = toIsoDate(d)
-    return { iso, label, isToday: iso === todayIso }
+    return [{ iso, label: name.slice(0, 3), isToday: iso === todayIso }]
   })
 }
 

@@ -17,6 +17,49 @@ export interface EmployeeRecord {
   status: EmployeeStatus | string
   createdAt: string
   updatedAt: string
+  /** MALE or FEMALE; null until HR sets it (older servers leave these out). */
+  gender?: Gender | null
+  /** MR, MS or MRS; null when not set. */
+  namePrefix?: NamePrefix | null
+  /** "Mr. Vamsi Ajjampudi": prefix (if set), first and last name. */
+  displayName?: string | null
+  /** The office address shown on the employee's ID card. */
+  companyAddressId?: number | null
+}
+
+export type Gender = 'MALE' | 'FEMALE'
+export type NamePrefix = 'MR' | 'MS' | 'MRS'
+
+export const GENDERS: { id: Gender; label: string }[] = [
+  { id: 'MALE', label: 'Male' },
+  { id: 'FEMALE', label: 'Female' },
+]
+
+export const NAME_PREFIXES: { id: NamePrefix; label: string }[] = [
+  { id: 'MR', label: 'Mr.' },
+  { id: 'MS', label: 'Ms.' },
+  { id: 'MRS', label: 'Mrs.' },
+]
+
+export function genderLabel(gender: string | null | undefined): string {
+  return GENDERS.find((g) => g.id === gender)?.label ?? ''
+}
+
+export function prefixLabel(prefix: string | null | undefined): string {
+  return NAME_PREFIXES.find((p) => p.id === prefix)?.label ?? ''
+}
+
+/**
+ * "Mr. Vamsi Ajjampudi" (same rule as the server): the prefix is left out
+ * when none is set or when the first name already starts with a title, so it
+ * is never shown twice.
+ */
+export function displayNameOf(record: Pick<EmployeeRecord, 'firstName' | 'lastName'> & { namePrefix?: string | null; displayName?: string | null }): string {
+  if (record.displayName?.trim()) return record.displayName.trim()
+  const name = fullName(record)
+  const label = prefixLabel(record.namePrefix)
+  if (!label || !name || /^(mr|ms|mrs)\.?\s/i.test(name)) return name
+  return `${label} ${name}`
 }
 
 export interface EmployeePage {
@@ -40,6 +83,11 @@ export interface EmployeeFormValues {
   jobTitle: string
   joiningDate: string
   initialPassword: string
+  /** '' = not set. */
+  gender: Gender | ''
+  namePrefix: NamePrefix | ''
+  /** An office address id, or '' for none. */
+  companyAddressId: string
 }
 
 export const EMPTY_EMPLOYEE_FORM: EmployeeFormValues = {
@@ -52,6 +100,9 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormValues = {
   jobTitle: '',
   joiningDate: '',
   initialPassword: '',
+  gender: '',
+  namePrefix: '',
+  companyAddressId: '',
 }
 
 export type FormErrors = Partial<Record<keyof EmployeeFormValues, string>>
@@ -85,6 +136,8 @@ export function validateEmployeeForm(values: EmployeeFormValues, mode: 'create' 
   }
   if (values.department.trim().length > 100) errors.department = 'Department is too long.'
   if (values.jobTitle.trim().length > 100) errors.jobTitle = 'Job title is too long.'
+  if (values.gender && !GENDERS.some((g) => g.id === values.gender)) errors.gender = 'Choose Male or Female.'
+  if (values.namePrefix && !NAME_PREFIXES.some((p) => p.id === values.namePrefix)) errors.namePrefix = 'Choose Mr., Ms. or Mrs.'
   if (values.joiningDate && !/^\d{4}-\d{2}-\d{2}$/.test(values.joiningDate)) {
     errors.joiningDate = 'Enter a valid date.'
   }
@@ -112,6 +165,15 @@ export function toCreatePayload(values: EmployeeFormValues) {
     jobTitle: orNull(values.jobTitle),
     joiningDate: values.joiningDate || null,
     initialPassword: values.initialPassword,
+    ...profilePayload(values),
+  }
+}
+
+function profilePayload(values: EmployeeFormValues) {
+  return {
+    gender: values.gender || null,
+    namePrefix: values.namePrefix || null,
+    companyAddressId: values.companyAddressId ? Number(values.companyAddressId) : null,
   }
 }
 
@@ -125,6 +187,7 @@ export function toUpdatePayload(values: EmployeeFormValues) {
     department: orNull(values.department),
     jobTitle: orNull(values.jobTitle),
     joiningDate: values.joiningDate || null,
+    ...profilePayload(values),
   }
 }
 
@@ -139,6 +202,9 @@ export function formFromRecord(record: EmployeeRecord): EmployeeFormValues {
     jobTitle: record.jobTitle ?? '',
     joiningDate: record.joiningDate ?? '',
     initialPassword: '',
+    gender: record.gender ?? '',
+    namePrefix: record.namePrefix ?? '',
+    companyAddressId: record.companyAddressId ? String(record.companyAddressId) : '',
   }
 }
 

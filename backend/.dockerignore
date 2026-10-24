@@ -1,0 +1,11 @@
+# Only the source, pom.xml and the Maven wrapper go into the image build.
+target/
+*.log
+*.bak
+**/*.bak
+.idea/
+.vscode/
+*.iml
+HELP.md
+.env
+.env.*

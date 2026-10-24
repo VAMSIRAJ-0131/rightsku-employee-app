@@ -4,14 +4,16 @@ apply plugin: 'com.android.application'
 // (frontend/android/keystore.properties), which is never committed. Without it,
 // a release build is left unsigned instead of using any made-up key.
 //   storeFile=C:/path/to/rightcentral-release.jks
-//   storePassword=...
 //   keyAlias=...
-//   keyPassword=...
+//   storePassword=...   (optional: or set RIGHTCENTRAL_STORE_PASSWORD)
+//   keyPassword=...     (optional: or set RIGHTCENTRAL_KEY_PASSWORD)
+// The environment variables win, so the passwords need not be saved to disk.
 def keystorePropertiesFile = rootProject.file('keystore.properties')
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
+def signingSecret = { String key, String envName -> System.getenv(envName) ?: keystoreProperties[key] }
 
 android {
     namespace = "com.rightsku.employeeapp"
@@ -33,9 +35,9 @@ android {
         if (keystorePropertiesFile.exists()) {
             release {
                 storeFile file(keystoreProperties['storeFile'])
-                storePassword keystoreProperties['storePassword']
+                storePassword signingSecret('storePassword', 'RIGHTCENTRAL_STORE_PASSWORD')
                 keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
+                keyPassword signingSecret('keyPassword', 'RIGHTCENTRAL_KEY_PASSWORD')
             }
         }
     }

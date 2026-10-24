@@ -17,6 +17,9 @@ public class Notification {
     public static final String TIMESHEET_REJECTED = "TIMESHEET_REJECTED";
     public static final String PAYSLIP_PUBLISHED = "PAYSLIP_PUBLISHED";
     public static final String DOCUMENT_PUBLISHED = "DOCUMENT_PUBLISHED";
+    public static final String SCHEDULE_CHANGED = "SCHEDULE_CHANGED";
+    public static final String COMP_OFF_APPROVED = "COMP_OFF_APPROVED";
+    public static final String COMP_OFF_REJECTED = "COMP_OFF_REJECTED";
 
     static final int MAX_TITLE = 150;
     static final int MAX_MESSAGE = 500;
@@ -40,6 +43,17 @@ public class Notification {
     @Column(name = "read_at")
     private Instant readAt;
 
+    /** What the notification is about, so tapping it opens that record (V15). Null for older ones. */
+    @Column(name = "link_type", length = 30)
+    private String linkType;
+
+    @Column(name = "link_key", length = 40)
+    private String linkKey;
+
+    /** When the person cleared it from their list. Only the notification is hidden; nothing else changes. */
+    @Column(name = "cleared_at")
+    private Instant clearedAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -58,6 +72,32 @@ public class Notification {
 
     private static String cut(String value, int max) {
         return value.length() <= max ? value : value.substring(0, max - 1) + "…";
+    }
+
+    /** Points the notification at a record: LEAVE_REQUEST, TIMESHEET_WEEK, DOCUMENT, SCHEDULE or COMP_OFF_REQUEST. */
+    public Notification linkTo(String type, Object key) {
+        this.linkType = type;
+        this.linkKey = key == null ? null : cut(String.valueOf(key), 40);
+        return this;
+    }
+
+    /** Hides it from the list (and the unread count). */
+    public void clear(Instant when) {
+        if (clearedAt == null) {
+            clearedAt = when;
+        }
+    }
+
+    public String getLinkType() {
+        return linkType;
+    }
+
+    public String getLinkKey() {
+        return linkKey;
+    }
+
+    public Instant getClearedAt() {
+        return clearedAt;
     }
 
     public void markRead(Instant when) {

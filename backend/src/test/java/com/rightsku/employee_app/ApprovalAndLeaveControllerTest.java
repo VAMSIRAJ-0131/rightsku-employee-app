@@ -35,7 +35,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * are mocked, so no database is used.
  */
 @WebMvcTest(
-        controllers = {HrApprovalController.class, EmployeeLeaveController.class, HrCompOffController.class},
+        controllers = {HrApprovalController.class, EmployeeLeaveController.class, HrCompOffController.class,
+                EmployeeCompOffController.class},
         properties = {
                 "app.jwt.secret=" + JwtServiceTest.TEST_SECRET,
                 "HR_ADMIN_BOOTSTRAP_ENABLED=false"
@@ -68,6 +69,9 @@ class ApprovalAndLeaveControllerTest {
 
     @MockitoBean
     private CompOffService compOff;
+
+    @MockitoBean
+    private CompOffRequestService compOffRequests;
 
     @MockitoBean
     private AppUserRepository appUserRepository;
@@ -120,6 +124,7 @@ class ApprovalAndLeaveControllerTest {
                 LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"), new BigDecimal("45"), null, "APPROVED", null, null, List.of(), List.of()));
         when(timesheets.summary()).thenReturn(new ApprovalSummaryResponse(
                 new ApprovalSummaryResponse.Counts(2, 5, 1), new ApprovalSummaryResponse.Counts(1, 0, 0)));
+        when(compOffRequests.counts()).thenReturn(new ApprovalSummaryResponse.Counts(3, 1, 0));
 
         mockMvc.perform(as(json(post("/api/hr/timesheets/review"), REVIEW), hrToken))
                 .andExpect(status().isOk())
@@ -128,7 +133,70 @@ class ApprovalAndLeaveControllerTest {
         mockMvc.perform(as(get("/api/hr/approvals/summary"), hrToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.timesheets.pending").value(2))
-                .andExpect(jsonPath("$.leave.pending").value(1));
+                .andExpect(jsonPath("$.leave.pending").value(1))
+                .andExpect(jsonPath("$.compOff.pending").value(3));
+    }
+
+    private static final String COMP_OFF_REQUEST = """
+            {"workDate":"2026-10-11","days":0.5,"reason":"Release support on Sunday"}""";
+
+    private static CompOffRequestResponse compOffRequest(String status) {
+        return new CompOffRequestResponse(7L, 10L, "EMP010", "Ravi Kumar", LocalDate.parse("2026-10-11"), "WEEKLY_OFF",
+                null, new BigDecimal("0.5"), "Release support on Sunday", status, null, null, null);
+    }
+
+    @Test
+    void employeeAsksForCompOffAsThemselves() throws Exception {
+        when(compOffRequests.apply(eq(110L), any())).thenReturn(compOffRequest("PENDING"));
+        when(compOffRequests.mine(110L)).thenReturn(List.of(compOffRequest("PENDING")));
+
+        mockMvc.perform(as(json(post("/api/employee/comp-off-requests"), COMP_OFF_REQUEST), employeeToken))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING"));
+        verify(compOffRequests).apply(110L, new CompOffApplyRequest(
+                LocalDate.parse("2026-10-11"), new BigDecimal("0.5"), "Release support on Sunday"));
+        mockMvc.perform(as(get("/api/employee/comp-off-requests"), employeeToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].dayKind").value("WEEKLY_OFF"));
+    }
+
+    @Test
+    void compOffRequestNeedsTheDayDaysAndReason() throws Exception {
+        mockMvc.perform(as(json(post("/api/employee/comp-off-requests"), "{\"days\":1}"), employeeToken))
+                .andExpect(status().isBadRequest());
+        verify(compOffRequests, never()).apply(anyLong(), any());
+    }
+
+    @Test
+    void onlyHrCanSeeOrDecideCompOffRequestsAndOnlyEmployeesCanAsk() throws Exception {
+        mockMvc.perform(as(get("/api/hr/comp-off-requests"), employeeToken)).andExpect(status().isForbidden());
+        mockMvc.perform(as(post("/api/hr/comp-off-requests/7/approve"), employeeToken)).andExpect(status().isForbidden());
+        mockMvc.perform(as(post("/api/hr/comp-off-requests/7/reject"), employeeToken)).andExpect(status().isForbidden());
+        mockMvc.perform(as(json(post("/api/employee/comp-off-requests"), COMP_OFF_REQUEST), hrToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/employee/comp-off-requests")).andExpect(status().isUnauthorized());
+        verify(compOffRequests, never()).approve(anyLong(), any(), any());
+        verify(compOffRequests, never()).reject(anyLong(), any(), any());
+        verify(compOffRequests, never()).apply(anyLong(), any());
+    }
+
+    @Test
+    void hrDecidesCompOffRequestsAsThemselves() throws Exception {
+        when(compOffRequests.withStatus(null)).thenReturn(List.of(compOffRequest("PENDING")));
+        when(compOffRequests.approve(eq(7L), eq("Thanks"), eq(1L))).thenReturn(compOffRequest("APPROVED"));
+        when(compOffRequests.reject(eq(8L), any(), eq(1L))).thenReturn(compOffRequest("REJECTED"));
+
+        mockMvc.perform(as(get("/api/hr/comp-off-requests"), hrToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].employeeCode").value("EMP010"));
+        mockMvc.perform(as(json(post("/api/hr/comp-off-requests/7/approve"), "{\"note\":\"Thanks\"}"), hrToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+        mockMvc.perform(as(post("/api/hr/comp-off-requests/8/reject"), hrToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+        verify(compOffRequests).approve(7L, "Thanks", 1L);
+        verify(compOffRequests).reject(8L, null, 1L);
     }
 
     @Test
@@ -183,7 +251,7 @@ class ApprovalAndLeaveControllerTest {
     private static CompOffResponse compOffBalance(String days) {
         return new CompOffResponse(10L, new BigDecimal(days), BigDecimal.ZERO, new BigDecimal(days), List.of(
                 new CompOffAdjustmentResponse(900L, "MANUAL", new BigDecimal("1.5"), BigDecimal.ZERO, new BigDecimal("1.5"),
-                        "Worked on Sunday", null, "hr@rightsku.com", null)));
+                        "Worked on Sunday", null, null, "hr@rightsku.com", null)));
     }
 
     @Test

@@ -20,10 +20,18 @@ public class EmployeeProfileController {
 
     private final EmployeeService employeeService;
     private final EmployeePhotoService photos;
+    private final CompanyService company;
 
-    public EmployeeProfileController(EmployeeService employeeService, EmployeePhotoService photos) {
+    public EmployeeProfileController(EmployeeService employeeService, EmployeePhotoService photos, CompanyService company) {
         this.employeeService = employeeService;
         this.photos = photos;
+        this.company = company;
+    }
+
+    /** The employee's own virtual ID card: their details, the company name and their office address. */
+    @GetMapping("/id-card")
+    public EmployeeIdCardResponse idCard(@AuthenticationPrincipal Jwt jwt) {
+        return company.idCard(Long.parseLong(jwt.getSubject()));
     }
 
     @GetMapping

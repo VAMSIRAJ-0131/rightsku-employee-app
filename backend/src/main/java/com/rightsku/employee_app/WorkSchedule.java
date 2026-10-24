@@ -38,6 +38,13 @@ public class WorkSchedule {
     @Column(name = "updated_by")
     private Long updatedBy;
 
+    /** Set when a schedule saved from an earlier Monday replaced this one (V15); it then no longer applies. */
+    @Column(name = "replaced_at")
+    private Instant replacedAt;
+
+    @Column(name = "replaced_by")
+    private Long replacedBy;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -57,14 +64,37 @@ public class WorkSchedule {
         return s;
     }
 
+    /** New values for this start date; a replaced schedule saved again applies again. */
     public void change(Set<DayOfWeek> weeklyOffs, BigDecimal hours, Long actor) {
         this.weeklyOffMask = (short) WorkCalendar.toMask(weeklyOffs);
         this.hoursPerDay = hours;
         this.updatedBy = actor;
+        this.replacedAt = null;
+        this.replacedBy = null;
     }
 
+    /** A schedule saved from an earlier Monday takes over; this row is kept for history. */
+    public void replace(Long actor, Instant at) {
+        this.replacedAt = at;
+        this.replacedBy = actor;
+    }
+
+    public boolean isReplaced() {
+        return replacedAt != null;
+    }
+
+    /**
+     * The schedule as the calendar uses it. Schedules start on a Monday; a
+     * schedule saved before that rule with a start on another day applies
+     * from the next Monday, so a week never mixes two schedules.
+     */
     public WorkCalendar.Schedule toSchedule() {
-        return new WorkCalendar.Schedule(effectiveFrom, WorkCalendar.fromMask(weeklyOffMask), hoursPerDay);
+        return new WorkCalendar.Schedule(startMonday(), WorkCalendar.fromMask(weeklyOffMask), hoursPerDay);
+    }
+
+    /** effectiveFrom if it is a Monday, otherwise the Monday after it. */
+    public LocalDate startMonday() {
+        return effectiveFrom.with(java.time.temporal.TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
     }
 
     @PrePersist

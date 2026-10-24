@@ -48,6 +48,18 @@ public class Employee {
     @Column(name = "employment_status", nullable = false, length = 20)
     private String employmentStatus = STATUS_ACTIVE;
 
+    /** MALE or FEMALE, or null when HR has not set it (V15). */
+    @Column(length = 10)
+    private String gender;
+
+    /** MR, MS or MRS, or null (V15). */
+    @Column(name = "name_prefix", length = 5)
+    private String namePrefix;
+
+    /** The office address on the employee's ID card, or null (V15). */
+    @Column(name = "company_address_id")
+    private Long companyAddressId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -81,6 +93,30 @@ public class Employee {
         this.department = details.department();
         this.jobTitle = details.jobTitle();
         this.joiningDate = details.joiningDate();
+    }
+
+    /** HR's choices for gender, name prefix and office address (each may be null). Already checked. */
+    public void applyProfile(String gender, String namePrefix, Long companyAddressId) {
+        this.gender = gender;
+        this.namePrefix = namePrefix;
+        this.companyAddressId = companyAddressId;
+    }
+
+    public String getGender() {
+        return gender;
+    }
+
+    public String getNamePrefix() {
+        return namePrefix;
+    }
+
+    public Long getCompanyAddressId() {
+        return companyAddressId;
+    }
+
+    /** "Mr. Vamsi Ajjampudi": prefix (if set and not already part of the name), first and last name. */
+    public String displayName() {
+        return EmployeeNames.display(namePrefix, firstName, lastName);
     }
 
     public void activate() {

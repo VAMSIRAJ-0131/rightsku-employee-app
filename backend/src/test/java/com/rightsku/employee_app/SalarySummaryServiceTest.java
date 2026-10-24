@@ -40,6 +40,7 @@ class SalarySummaryServiceTest {
     private TimesheetWeekRepository weekRepository;
     private LeaveRequestRepository leaveRequests;
     private WorkCalendarService calendars;
+    private WorkScheduleRepository schedules;
     private final List<Employee> people = new ArrayList<>();
     private final List<TimesheetEntry> entries = new ArrayList<>();
     private final List<TimesheetWeek> weeks = new ArrayList<>();
@@ -51,7 +52,7 @@ class SalarySummaryServiceTest {
         timesheets = mock(TimesheetEntryRepository.class);
         weekRepository = mock(TimesheetWeekRepository.class);
         leaveRequests = mock(LeaveRequestRepository.class);
-        WorkScheduleRepository schedules = mock(WorkScheduleRepository.class);
+        schedules = mock(WorkScheduleRepository.class);
         CompanyHolidayRepository holidays = mock(CompanyHolidayRepository.class);
         List<CompanyHoliday> holidayRows = List.of(CompanyHoliday.create(LocalDate.parse("2026-09-14"), "Test holiday", 1L));
         when(holidays.findByHolidayDateBetweenOrderByHolidayDateAsc(any(), any())).thenAnswer(call -> {
@@ -169,6 +170,33 @@ class SalarySummaryServiceTest {
                 .anyMatch(f -> f.startsWith("5 working day(s) waiting for HR"))
                 .anyMatch(f -> f.startsWith("1 working day(s) in rejected timesheets"))
                 .anyMatch(f -> f.startsWith("1 day(s) have both approved leave and an approved timesheet"));
+    }
+
+    @Test
+    void anEmployeesOwnWeeklyOffsAreNeverLopAndTheirWeekendIsWorkingTime() {
+        // Tuesday and Wednesday off from Monday 31 Aug (HR schedule); Saturday and Sunday are working days.
+        // September: 10 Tuesdays/Wednesdays off, holiday Mon 14, so 19 working days.
+        employee(10L, "EMP010", "Ravi", "2025-01-06");
+        when(schedules.findByEmployeeIdOrderByEffectiveFromAsc(10L)).thenReturn(List.of(WorkSchedule.create(10L,
+                LocalDate.parse("2026-08-31"), java.util.EnumSet.of(java.time.DayOfWeek.TUESDAY, java.time.DayOfWeek.WEDNESDAY),
+                new BigDecimal("9"), 1L)));
+        for (String monday : List.of("2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28")) {
+            submittedWeek(10L, monday);
+        }
+        // Every working day approved except Saturday 26 (0 hours in an approved week).
+        approvedDays(10L, "03", "04", "05", "06", "07", "10", "11", "12", "13", "17", "18", "19", "20",
+                "21", "24", "25", "27", "28");
+
+        SalarySummaryResponse.Row ravi = service(AFTER_MONTH).summary(2026, 9).rows().get(0);
+
+        assertThat(ravi.weeklyOffs()).as("Tuesdays and Wednesdays").isEqualTo(10);
+        assertThat(ravi.holidays()).isEqualTo(1);
+        assertThat(ravi.workingDays()).isEqualTo(19);
+        assertThat(ravi.presentDays()).isEqualTo(18);
+        assertThat(ravi.absences()).as("only Saturday 26; no Tuesday or Wednesday").isEqualTo(1);
+        assertThat(ravi.lopDays()).isEqualTo(1);
+        assertThat(ravi.reviewDays()).isZero();
+        assertThat(ravi.payableDays()).isEqualTo(29);
     }
 
     @Test

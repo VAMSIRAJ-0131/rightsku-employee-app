@@ -1,9 +1,11 @@
 
 package com.rightsku.employee_app;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -86,16 +88,20 @@ public class SecurityConfig {
         return roleConverter.convert(jwt);
     }
 
+    /**
+     * Allowed origins come from app.cors.allowed-origins (comma-separated).
+     * The Android app always calls from https://localhost; production sets
+     * only the app's origins, leaving out the local web dev addresses.
+     */
     @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
+    public CorsConfigurationSource corsConfigurationSource(
+            @Value("${app.cors.allowed-origins}") String allowedOrigins) {
         CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowedOrigins(List.of(
-                "http://localhost:5174",
-                "http://127.0.0.1:5174",
-                "https://localhost",
-                "capacitor://localhost"
-        ));
+        config.setAllowedOrigins(Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList());
 
         config.setAllowedMethods(List.of(
                 "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"
@@ -120,11 +126,12 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             AuthenticationProvider authenticationProvider,
-            JwtAuthenticationConverter jwtAuthenticationConverter)
+            JwtAuthenticationConverter jwtAuthenticationConverter,
+            CorsConfigurationSource corsConfigurationSource)
             throws Exception {
 
         http
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -135,6 +142,9 @@ public class SecurityConfig {
                 ).authenticated()
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/error").permitAll()
+                // Server health (UP/DOWN only, no details) for Docker and monitoring.
+                // Caddy blocks /actuator/* from the internet as well.
+                .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                 .requestMatchers("/api/hr/**").hasRole("HR_ADMIN")
                 .requestMatchers("/api/employee/**").hasRole("EMPLOYEE")
                 .anyRequest().hasAnyRole("EMPLOYEE", "HR_ADMIN")

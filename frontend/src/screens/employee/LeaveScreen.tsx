@@ -1,10 +1,11 @@
-// Employee leave: balances set by HR, the application form and history.
+// Employee leave: balances set by HR, the application form and history,
+// and (second tab) Comp-Off requests for work on a weekly off or holiday.
 // The number of days counts working days only (the server's calendar:
 // weekly offs and company holidays are left out). The server checks
 // everything again and decides.
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Icon } from '../../components/Icons'
-import { Button, Card, Notice, Section, Spinner, TopBar } from '../../components/ui'
+import { Button, Card, Notice, Section, Segmented, Spinner, TopBar } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import LeaveTypeSelect from '../../components/LeaveTypeSelect'
 import {
@@ -12,12 +13,13 @@ import {
   type LeaveBalanceRecord, type LeaveFormErrors, type LeaveFormValues,
 } from '../../lib/leave'
 import { getMyCalendar } from '../../lib/workCalendar'
+import CompOffRequestForm from './CompOffRequestForm'
 
 const EMPTY: LeaveFormValues = { leaveType: '', startDate: '', endDate: '', reason: '' }
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export default function LeaveScreen({
-  token, balances, balanceError, history, onBack, onSubmitted, onError, onRetry,
+  token, balances, balanceError, history, onBack, onSubmitted, onError, onRetry, initialTab = 'leave', highlightCompOffId = null,
 }: {
   token: string
   /** null while loading. */
@@ -29,7 +31,12 @@ export default function LeaveScreen({
   onSubmitted: () => void
   onError: (error: ApiError) => ApiError
   onRetry: () => void
+  /** Which tab opens first (a Comp-Off notification opens Request Comp-Off). */
+  initialTab?: 'leave' | 'compoff'
+  /** A Comp-Off request a tapped notification points at (outlined in the list). */
+  highlightCompOffId?: string | null
 }) {
+  const [tab, setTab] = useState<'leave' | 'compoff'>(initialTab)
   const [values, setValues] = useState<LeaveFormValues>(EMPTY)
   const [errors, setErrors] = useState<LeaveFormErrors>({})
   const [workingDays, setWorkingDays] = useState<number | null>(null)
@@ -95,6 +102,20 @@ export default function LeaveScreen({
   return (
     <>
       <TopBar title="Leave" subtitle="Balance and applications" onBack={onBack} />
+      <Section>
+        <Segmented
+          options={[
+            { id: 'leave', label: 'Apply for leave' },
+            { id: 'compoff', label: 'Request Comp-Off' },
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
+      </Section>
+      {tab === 'compoff' ? (
+        <CompOffRequestForm token={token} onSubmitted={onSubmitted} onError={onError} highlightId={highlightCompOffId} />
+      ) : (
+      <>
       <Section title="Apply for leave">
         <form noValidate onSubmit={submit}>
           <Card className="space-y-4 p-4">
@@ -174,6 +195,8 @@ export default function LeaveScreen({
       </Section>
 
       <Section title="History">{history}</Section>
+      </>
+      )}
     </>
   )
 }

@@ -14,6 +14,8 @@ export type DocType = 'Offer Letter' | 'Experience Letter' | 'Payslip' | 'Form 1
 export interface Employee {
   id: string
   name: string
+  /** Name with the prefix HR set, e.g. "Mr. Vamsi Ajjampudi" (falls back to name). */
+  displayName?: string
   department: string
   designation: string
   joiningDate: string

@@ -3,9 +3,11 @@
 //
 // Casual, Sick and Earned: HR enters the new balance; the server saves it and
 // records the previous and new value in the audit log.
-// Comp-Off: HR adds or deducts days with a reason; the server keeps every
-// change in the Comp-Off history (shown in CompOffSection). Comp-Off's balance
-// and history are shown there, so its row is not repeated here.
+// Comp-Off: earned through employee requests that HR approves (Approvals →
+// Comp-Off). Here HR only corrects it, adding or deducting days with a reason;
+// the server keeps every change in the Comp-Off history (shown in
+// CompOffSection). Comp-Off's balance and history are shown there, so its row
+// is not repeated here.
 import { useEffect, useState, type FormEvent } from 'react'
 import LeaveTypeSelect from '../../components/LeaveTypeSelect'
 import { Button, Card, Notice, Section, Spinner } from '../../components/ui'
@@ -208,6 +210,10 @@ export default function LeaveBalanceSection({
 
               {isCompOff && (
                 <>
+                  <p className="text-[12px] leading-relaxed text-ink-muted">
+                    For corrections only. Employees request Comp-Off themselves, and approving it in Approvals → Comp-Off
+                    adds it to the balance automatically.
+                  </p>
                   <div className="grid grid-cols-2 gap-1 rounded-lg bg-mist-100/70 p-1" role="group" aria-label="Add or deduct">
                     {(['add', 'deduct'] as Direction[]).map((d) => (
                       <button
@@ -252,7 +258,7 @@ export default function LeaveBalanceSection({
                       rows={2}
                       maxLength={500}
                       value={form.reason}
-                      placeholder="For example: Worked on Sunday 18 Oct"
+                      placeholder="For example: Correction, credited twice by mistake"
                       onChange={(e) => update('reason', e.target.value)}
                       aria-invalid={!!errors.reason}
                       className="mt-1.5 w-full resize-none rounded-xl border border-line-strong bg-white px-3 py-2 text-[14px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-mist-500 focus:ring-4 focus:ring-mist-100"

@@ -8,11 +8,14 @@ import {
 } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import {
-  EMPTY_EMPLOYEE_FORM, MIN_PASSWORD_LENGTH, createEmployee, formFromRecord, fullName, getEmployee,
-  listEmployees, setEmployeeActive, updateEmployee, validateEmployeeForm,
+  EMPTY_EMPLOYEE_FORM, GENDERS, MIN_PASSWORD_LENGTH, NAME_PREFIXES, createEmployee, displayNameOf, formFromRecord,
+  fullName, genderLabel, getEmployee, listEmployees, prefixLabel, setEmployeeActive, updateEmployee, validateEmployeeForm,
   type EmployeeFormValues, type EmployeePage, type EmployeeRecord, type FormErrors, type StatusFilter,
 } from '../../lib/employees'
 import { formatDate } from '../../lib/format'
+import { addressChoices, getCompany, type CompanyAddressRecord } from '../../lib/company'
+import SelectField from '../../components/SelectField'
+import DateField from '../../components/DateField'
 import type { DocumentRecord } from '../../lib/documents'
 import type { ScheduleView } from '../../lib/workCalendar'
 import DocumentUploadForm from './DocumentUploadForm'
@@ -35,13 +38,15 @@ type View =
 
 interface Props {
   token: string
+  /** The status filter to open on (a dashboard box can ask for Active or Inactive). */
+  initialStatus?: StatusFilter
   onToast: (text: string, tone?: 'info' | 'success' | 'error') => void
   onSessionExpired: () => void
   /** Called after any change, so other screens can refresh their counts. */
   onChanged: () => void
 }
 
-export default function EmployeesScreen({ token, onToast, onSessionExpired, onChanged }: Props) {
+export default function EmployeesScreen({ token, onToast, onSessionExpired, onChanged, initialStatus = 'ALL' }: Props) {
   const [view, setView] = useState<View>({ kind: 'list' })
   const [listVersion, setListVersion] = useState(0)
   /** Bumped after a schedule or document change, so the details page reloads them. */
@@ -64,6 +69,7 @@ export default function EmployeesScreen({ token, onToast, onSessionExpired, onCh
   if (view.kind === 'create') {
     return (
       <EmployeeForm
+        token={token}
         mode="create"
         initial={EMPTY_EMPLOYEE_FORM}
         onCancel={() => setView({ kind: 'list' })}
@@ -80,6 +86,7 @@ export default function EmployeesScreen({ token, onToast, onSessionExpired, onCh
   if (view.kind === 'edit') {
     return (
       <EmployeeForm
+        token={token}
         mode="edit"
         employeeCode={view.record.employeeCode}
         initial={formFromRecord(view.record)}
@@ -101,6 +108,7 @@ export default function EmployeesScreen({ token, onToast, onSessionExpired, onCh
         token={token}
         employeeId={view.record.id}
         employeeName={fullName(view.record)}
+        joiningDate={view.record.joiningDate}
         current={view.current}
         onCancel={back}
         onError={handleError}
@@ -185,6 +193,7 @@ export default function EmployeesScreen({ token, onToast, onSessionExpired, onCh
   return (
     <EmployeeList
       token={token}
+      initialStatus={initialStatus}
       version={listVersion}
       onAdd={() => setView({ kind: 'create' })}
       onOpen={(record) => setView({ kind: 'details', id: record.id, initial: record })}
@@ -196,9 +205,10 @@ export default function EmployeesScreen({ token, onToast, onSessionExpired, onCh
 /* ---------------------------------------------------------------- List */
 
 function EmployeeList({
-  token, version, onAdd, onOpen, onError,
+  token, initialStatus, version, onAdd, onOpen, onError,
 }: {
   token: string
+  initialStatus: StatusFilter
   version: number
   onAdd: () => void
   onOpen: (record: EmployeeRecord) => void
@@ -206,7 +216,7 @@ function EmployeeList({
 }) {
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
-  const [status, setStatus] = useState<StatusFilter>('ALL')
+  const [status, setStatus] = useState<StatusFilter>(initialStatus)
   const [data, setData] = useState<EmployeePage | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -387,6 +397,17 @@ function EmployeeDetails({
   const [retry, setRetry] = useState(0)
   // Goes up after a Comp-Off change in Leave balance, so the Comp-Off history reloads.
   const [compOffVersion, setCompOffVersion] = useState(0)
+  // The office shown on the employee's ID card (from the company's addresses).
+  const [offices, setOffices] = useState<CompanyAddressRecord[]>([])
+  useEffect(() => {
+    const controller = new AbortController()
+    getCompany(token, controller.signal).then((r) => {
+      if (!controller.signal.aborted && r.ok) setOffices(r.data.addresses)
+    })
+    return () => controller.abort()
+  }, [token])
+  const office = offices.find((a) => a.id === record?.companyAddressId)
+  const officeName = office ? `${office.label}: ${office.address}` : ''
 
   // Always refresh from the server, so the screen shows the latest saved data.
   useEffect(() => {
@@ -444,7 +465,7 @@ function EmployeeDetails({
             <Card className="flex items-center gap-4 px-4 py-5">
               <EmployeePhotoEditor token={token} employeeId={record.id} name={fullName(record)} onToast={onToast} onError={onError} />
               <div className="min-w-0">
-                <p className="truncate text-[18px] font-semibold text-ink">{fullName(record)}</p>
+                <p className="truncate text-[18px] font-semibold text-ink">{displayNameOf(record)}</p>
                 <p className="truncate text-[14px] text-ink-muted">{record.jobTitle ?? 'No job title yet'}</p>
                 <p className="tnum mt-1.5 flex items-center gap-2">
                   <Tag>{record.employeeCode}</Tag>
@@ -458,6 +479,13 @@ function EmployeeDetails({
               <DetailRow icon="briefcase" label="Department" value={record.department ?? ''} />
               <DetailRow icon="user" label="Job title" value={record.jobTitle ?? ''} />
               <DetailRow icon="calendar" label="Joined" value={record.joiningDate ? formatDate(record.joiningDate) : ''} />
+              <DetailRow icon="pin" label="Office (ID card)" value={officeName} />
+            </Card>
+          </Section>
+          <Section title="Personal">
+            <Card className="divide-y divide-line">
+              <DetailRow icon="user" label="Name prefix" value={prefixLabel(record.namePrefix)} />
+              <DetailRow icon="user" label="Gender" value={genderLabel(record.gender)} />
             </Card>
           </Section>
           <Section title="Contact and sign-in">
@@ -558,8 +586,9 @@ function EmployeeDetails({
 /* ---------------------------------------------------------------- Form */
 
 function EmployeeForm({
-  mode, employeeCode, initial, onCancel, onSubmit, onError, onSaved,
+  token, mode, employeeCode, initial, onCancel, onSubmit, onError, onSaved,
 }: {
+  token: string
   mode: 'create' | 'edit'
   employeeCode?: string
   initial: EmployeeFormValues
@@ -574,6 +603,18 @@ function EmployeeForm({
   const [saving, setSaving] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const topRef = useRef<HTMLDivElement | null>(null)
+  // The company's office addresses, for the ID card dropdown.
+  const [offices, setOffices] = useState<CompanyAddressRecord[] | null>(null)
+  useEffect(() => {
+    const controller = new AbortController()
+    getCompany(token, controller.signal).then((r) => {
+      if (controller.signal.aborted) return
+      setOffices(r.ok ? r.data.addresses : [])
+    })
+    return () => controller.abort()
+  }, [token])
+  const officeOptions = addressChoices(offices ?? [], initial.companyAddressId ? Number(initial.companyAddressId) : null)
+    .map((a) => ({ value: String(a.id), label: a.active ? a.label : `${a.label} (not in use)` }))
 
   const set = (field: keyof EmployeeFormValues) => (value: string) => {
     setValues((v) => ({ ...v, [field]: value }))
@@ -652,8 +693,26 @@ function EmployeeForm({
 
         <Section title="Name">
           <Card className="space-y-4 p-4">
+            <SelectField
+              id="emp-prefix"
+              label="Name prefix (optional)"
+              value={values.namePrefix}
+              options={NAME_PREFIXES.map((p) => ({ value: p.id, label: p.label }))}
+              onChange={(v) => set('namePrefix')(v)}
+              placeholder="None"
+              error={errors.namePrefix}
+            />
             <Field label="First name" value={values.firstName} onChange={set('firstName')} error={errors.firstName} autoComplete="off" maxLength={100} />
             <Field label="Last name" value={values.lastName} onChange={set('lastName')} error={errors.lastName} autoComplete="off" maxLength={100} />
+            <SelectField
+              id="emp-gender"
+              label="Gender (optional)"
+              value={values.gender}
+              options={GENDERS.map((g) => ({ value: g.id, label: g.label }))}
+              onChange={(v) => set('gender')(v)}
+              placeholder="Not set"
+              error={errors.gender}
+            />
           </Card>
         </Section>
 
@@ -668,7 +727,17 @@ function EmployeeForm({
           <Card className="space-y-4 p-4">
             <Field label="Department (optional)" value={values.department} onChange={set('department')} error={errors.department} maxLength={100} />
             <Field label="Job title (optional)" value={values.jobTitle} onChange={set('jobTitle')} error={errors.jobTitle} maxLength={100} />
-            <Field label="Joining date (optional)" type="date" value={values.joiningDate} onChange={set('joiningDate')} error={errors.joiningDate} />
+            <DateField id="emp-joining" label="Joining date (optional)" value={values.joiningDate} onChange={set('joiningDate')} error={errors.joiningDate} optional />
+            <SelectField
+              id="emp-office"
+              label="Office address for the ID card (optional)"
+              value={values.companyAddressId}
+              options={officeOptions}
+              onChange={(v) => set('companyAddressId')(v)}
+              placeholder={offices === null ? 'Loading offices…' : officeOptions.length ? 'Not set' : 'No offices yet'}
+              error={errors.companyAddressId}
+              hint={offices !== null && officeOptions.length === 0 ? 'Add office addresses in More → Company profile.' : undefined}
+            />
           </Card>
         </Section>
 

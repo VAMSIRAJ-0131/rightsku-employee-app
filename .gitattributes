@@ -1,0 +1,6 @@
+# Server files must keep Unix line endings, or they fail on Linux.
+*.sh       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+Dockerfile text eol=lf
+Caddyfile  text eol=lf

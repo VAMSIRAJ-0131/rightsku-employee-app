@@ -16,6 +16,10 @@ public interface TimesheetEntryRepository extends JpaRepository<TimesheetEntry, 
 
     boolean existsByEmployeeIdAndWorkDate(Long employeeId, LocalDate workDate);
 
+    /** The first submitted day on or after a date, of any status (a schedule change must not rewrite it). */
+    java.util.Optional<TimesheetEntry> findFirstByEmployeeIdAndWorkDateGreaterThanEqualOrderByWorkDateAsc(
+            Long employeeId, LocalDate from);
+
     /** Every employee's entries with one status, from a date on (HR review lists). */
     List<TimesheetEntry> findByStatusAndWorkDateGreaterThanEqualOrderByWorkDateDesc(String status, LocalDate from);
 

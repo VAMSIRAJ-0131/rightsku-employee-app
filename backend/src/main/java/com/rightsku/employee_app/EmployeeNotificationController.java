@@ -38,6 +38,18 @@ public class EmployeeNotificationController {
         return notifications.markAllRead(userId(jwt));
     }
 
+    /** Clears (hides) one notification. The leave, timesheet or document it is about is not changed. */
+    @PostMapping("/{id}/clear")
+    public NotificationResponse.Page clear(@PathVariable long id, @AuthenticationPrincipal Jwt jwt) {
+        return notifications.clear(userId(jwt), id);
+    }
+
+    /** Clears all of the employee's notifications. */
+    @PostMapping("/clear-all")
+    public NotificationResponse.Page clearAll(@AuthenticationPrincipal Jwt jwt) {
+        return notifications.clearAll(userId(jwt));
+    }
+
     private static long userId(Jwt jwt) {
         return Long.parseLong(jwt.getSubject());
     }

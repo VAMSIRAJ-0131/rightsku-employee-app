@@ -33,13 +33,16 @@ class EmployeeServiceTest {
     private PasswordEncoder encoder;
     private EmployeeService service;
 
+    private CompanyAddressRepository addresses;
+
     @BeforeEach
     void setUp() {
         employees = mock(EmployeeRepository.class);
         users = mock(AppUserRepository.class);
         audit = mock(AuditEntryRepository.class);
         encoder = new BCryptPasswordEncoder(4); // low cost keeps tests fast
-        service = new EmployeeService(employees, users, audit, encoder);
+        addresses = mock(CompanyAddressRepository.class);
+        service = new EmployeeService(employees, users, audit, encoder, addresses);
         when(users.findByLoginIdIgnoreCase(anyString())).thenReturn(Optional.empty());
         when(users.findByEmailIgnoreCase(anyString())).thenReturn(Optional.empty());
     }

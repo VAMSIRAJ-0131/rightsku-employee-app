@@ -21,6 +21,11 @@ import java.util.List;
  *       expected hours. enteredHours counts only hours worked (submitted
  *       entries that were not rejected, plus this week's draft); leave is
  *       never added to it.</li>
+ *   <li>target.totalHours / filledHours / unfilledHours: the summary the
+ *       employee sees (see WeekTarget): Total 45 for a full week (also with a
+ *       holiday), Filled = worked + approved leave (at most Total).
+ *       day.creditedHours: approved leave hours on that day (0 on weekly offs
+ *       and holidays); day.leaveType: the approved leave's type.</li>
  *   <li>canSubmit is false with submitBlockedReason saying why (for example
  *       hours still missing, or the week not finished yet).</li>
  *   <li>Empty working days (see WeekSubmission): pendingLeave says a leave
@@ -60,7 +65,9 @@ public record WeekTimesheetResponse(
         String entryStatus,
         boolean editable,
         boolean pendingLeave,
-        String emptyMeaning
+        String emptyMeaning,
+        BigDecimal creditedHours,
+        String leaveType
     ) {
     }
 
@@ -72,7 +79,10 @@ public record WeekTimesheetResponse(
         BigDecimal enteredHours,
         BigDecimal remainingHours,
         BigDecimal requiredHours,
-        long lopDays
+        long lopDays,
+        BigDecimal totalHours,
+        BigDecimal filledHours,
+        BigDecimal unfilledHours
     ) {
     }
 }

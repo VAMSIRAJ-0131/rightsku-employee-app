@@ -16,6 +16,10 @@ public interface TimesheetWeekRepository extends JpaRepository<TimesheetWeek, Lo
     /** An employee's weeks starting between two Mondays (salary summary: which weeks were submitted). */
     List<TimesheetWeek> findByEmployeeIdAndWeekStartBetween(Long employeeId, LocalDate from, LocalDate to);
 
+    /** The first week with this status starting on or after a Monday (a schedule change must not rewrite it). */
+    Optional<TimesheetWeek> findFirstByEmployeeIdAndStatusAndWeekStartGreaterThanEqualOrderByWeekStartAsc(
+            Long employeeId, String status, LocalDate from);
+
     /**
      * The same, locked until the transaction ends, so two saves or submits of
      * one week (for example a double tap) run one after the other.

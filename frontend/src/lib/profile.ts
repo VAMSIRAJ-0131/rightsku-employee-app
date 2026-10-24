@@ -5,7 +5,7 @@
 // job title, joining date and phone once this request returns.
 import type { Employee } from '../data/types'
 import { apiRequest, type ApiResult } from './api'
-import { fullName, type EmployeeRecord } from './employees'
+import { displayNameOf, fullName, type EmployeeRecord } from './employees'
 
 export function getMyProfile(token: string, signal?: AbortSignal): Promise<ApiResult<EmployeeRecord>> {
   return apiRequest<EmployeeRecord>('/api/employee/profile', { token, signal })
@@ -23,6 +23,8 @@ export function withProfileRecord(profile: Employee, record: EmployeeRecord): Em
   return {
     ...profile,
     name: name || profile.name,
+    // "Mr. Vamsi Ajjampudi" for the home screen; the plain name above stays for initials.
+    displayName: displayNameOf(record) || name || profile.name,
     email: record.email || profile.email,
     department: record.department ?? '',
     designation: record.jobTitle ?? '',

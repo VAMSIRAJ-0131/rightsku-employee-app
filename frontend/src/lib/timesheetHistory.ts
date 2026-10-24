@@ -6,7 +6,7 @@
 // Nothing is changed or re-sent: this only groups what is already saved.
 import type { Status, Timesheet } from '../data/types'
 import { formatShortDate, toIsoDate } from './format'
-import { weekStartOf } from './workCalendar'
+import { MAX_DAYS_BACK, weekStartOf } from './workCalendar'
 
 /** A week's overall status: one status when every day has it, otherwise "Mixed". */
 export type WeekHistoryStatus = Status | 'Mixed'
@@ -97,4 +97,64 @@ export function toggleWeek(open: ReadonlySet<string>, weekStart: string): Set<st
   if (next.has(weekStart)) next.delete(weekStart)
   else next.add(weekStart)
   return next
+}
+
+/* ---------- Home: the month, week by week ---------- */
+
+export type MonthWeekStatus = Status | 'Not submitted'
+
+export interface MonthWeek {
+  /** "Week 1" ... "Week 5". */
+  label: string
+  /** Monday and Sunday of the week, "YYYY-MM-DD". */
+  weekStart: string
+  weekEnd: string
+  /** The days of this week inside the month, e.g. "1 – 4 Oct". */
+  range: string
+  status: MonthWeekStatus
+  /** The week that contains today. */
+  current: boolean
+}
+
+/**
+ * The weeks (Monday to Sunday) that have days in the month of `today`:
+ * Week 1 holds the 1st, and a fifth (or sixth) week appears when the month
+ * needs it. Each week's status comes from all of its saved entries: Rejected
+ * if any day is rejected, otherwise Pending if any day is waiting, Approved
+ * only when every saved day is approved, and Not submitted when nothing was
+ * saved. One approved day never makes a whole week approved.
+ */
+/**
+ * Whether the week starting on this Monday can be opened in the timesheet: the
+ * same limits as the timesheet's own arrows and the server (this week back to
+ * the week of 60 days ago; future weeks can't be filled in yet).
+ */
+export function canOpenWeek(weekStart: string, today: string): boolean {
+  return weekStart <= weekStartOf(today) && weekStart >= weekStartOf(addDays(today, -MAX_DAYS_BACK))
+}
+
+export function monthWeeks(entries: Timesheet[], today: string): MonthWeek[] {
+  const first = `${today.slice(0, 7)}-01`
+  const d = new Date(`${first}T00:00:00`)
+  const last = toIsoDate(new Date(d.getFullYear(), d.getMonth() + 1, 0))
+  const thisMonday = weekStartOf(today)
+  const weeks: MonthWeek[] = []
+  for (let monday = weekStartOf(first), n = 1; monday <= last; monday = addDays(monday, 7), n++) {
+    const sunday = addDays(monday, 6)
+    const inWeek = entries.filter((e) => e.date >= monday && e.date <= sunday)
+    const from = monday < first ? first : monday
+    const to = sunday > last ? last : sunday
+    weeks.push({
+      label: `Week ${n}`,
+      weekStart: monday,
+      weekEnd: sunday,
+      range: `${Number(from.slice(8))} – ${Number(to.slice(8))} ${new Date(`${to}T00:00:00`).toLocaleDateString('en-IN', { month: 'short' })}`,
+      status: inWeek.length === 0 ? 'Not submitted'
+        : inWeek.some((e) => e.status === 'Rejected') ? 'Rejected'
+        : inWeek.some((e) => e.status === 'Pending') ? 'Pending'
+        : 'Approved',
+      current: monday === thisMonday,
+    })
+  }
+  return weeks
 }

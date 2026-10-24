@@ -27,6 +27,10 @@ export interface WeekDayData {
   /** PENDING / APPROVED / REJECTED once the day is submitted. */
   entryStatus: string | null
   editable: boolean
+  /** Approved leave hours on this day, counted without typing (0 on weekly offs and holidays). */
+  creditedHours?: number | string
+  /** The approved leave's type, e.g. "Casual" (older servers leave it out). */
+  leaveType?: string | null
   /** A leave request for this day is waiting for HR. */
   pendingLeave?: boolean
   /** For a working day left at 0 hours: LOP, PENDING_LEAVE or NEEDS_LEAVE (server's view of the saved week). */
@@ -53,6 +57,10 @@ export interface WeekTargetData {
   /** What must be entered exactly: expected hours minus empty LOP and pending-leave days. */
   requiredHours?: number | string
   lopDays?: number
+  /** The summary (older servers leave these out): Total 45 for a normal week, Filled = worked + credits. */
+  totalHours?: number | string
+  filledHours?: number | string
+  unfilledHours?: number | string
 }
 
 export interface WeekData {
@@ -156,6 +164,16 @@ export interface WeekTotals {
   /** What each empty editable working day currently means, by date. */
   empty: Record<string, EmptyMeaning>
   lopDays: number
+  /** Total hours: the scheduled hours of the working days (45 for a normal week). */
+  totalHours: number
+  /** Hours counted without typing: approved leave on working days (holidays and weekly offs add nothing). */
+  credited: number
+  /** Filled hours: worked + credited, at most Total. */
+  filled: number
+  /** Unfilled hours: Total - holiday hours (excused) - Filled, never below 0. */
+  unfilled: number
+  /** Filled / Total, from 0 to 100. */
+  progress: number
 }
 
 /** What an editable working day without hours means right now: blank, or 0 typed. */
@@ -190,6 +208,15 @@ export function weekTotals(week: WeekData, hours: Record<string, string>): WeekT
   entered = round(entered)
   required = round(required)
   const leave = round(num(week.target.leaveHours))
+  // The summary the employee sees (same rule as the server's WeekTarget): Total is
+  // the schedule's working days (45, also with a holiday); Filled = worked + approved
+  // leave. Weekly offs and holidays are 0 h.
+  const totalHours = round(num(week.target.scheduledHours))
+  const credited = leave
+  const filled = round(Math.min(totalHours, Math.max(0, entered + credited)))
+  // A holiday's hours are excused, not owed: they are never unfilled (or LOP).
+  const owed = round(Math.max(0, totalHours - num(week.target.holidayHours)))
+  const unfilled = round(Math.max(0, owed - filled))
   return {
     expected,
     required,
@@ -201,7 +228,44 @@ export function weekTotals(week: WeekData, hours: Record<string, string>): WeekT
     over: round(Math.max(0, entered - required)),
     empty,
     lopDays: Object.values(empty).filter((m) => m === 'LOP').length,
+    totalHours,
+    credited,
+    filled,
+    unfilled,
+    // Full when nothing is unfilled (in a holiday week, at 36 of 45 hours).
+    progress: progressPercent(filled, owed),
   }
+}
+
+/** How full the progress bar is: Filled / Total as 0-100, never below 0 or above 100. */
+export function progressPercent(filled: number, total: number): number {
+  if (!(total > 0) || !(filled > 0)) return 0
+  return Math.min(100, Math.round((filled / total) * 1000) / 10)
+}
+
+/**
+ * A day the employee does not type hours for, with the hours it shows and
+ * why: a weekly off or company holiday (always 0 h), or approved full-day
+ * leave (its hours, counted in Filled once). null when hours are entered.
+ */
+export function creditedDay(day: WeekDayData): { hours: number; reason: 'weekly-off' | 'holiday' | 'leave' } | null {
+  if (day.beforeJoining || day.entryStatus) return null
+  if (day.kind === 'WEEKLY_OFF' || (day.kind === 'HOLIDAY' && day.weeklyOff)) return { hours: 0, reason: 'weekly-off' }
+  if (day.kind === 'HOLIDAY') return { hours: 0, reason: 'holiday' }
+  if (day.leave === 'FULL_DAY') {
+    return { hours: day.creditedHours === undefined ? num(day.scheduledHours) : num(day.creditedHours), reason: 'leave' }
+  }
+  return null
+}
+
+/** "Holiday - Dasara" (just "Holiday" when it has no name). */
+export function holidayLabel(day: Pick<WeekDayData, 'holidayName'>): string {
+  return day.holidayName ? `Holiday - ${day.holidayName}` : 'Holiday'
+}
+
+/** "Casual leave (approved)", or "Approved leave" when the server does not say which type. */
+export function approvedLeaveLabel(day: Pick<WeekDayData, 'leaveType'>): string {
+  return day.leaveType ? `${day.leaveType} leave (approved)` : 'Approved leave'
 }
 
 /** Why the week can't be submitted yet because of its hours (the server's wording), or null. */

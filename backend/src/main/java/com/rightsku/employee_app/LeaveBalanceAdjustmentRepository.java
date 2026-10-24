@@ -14,4 +14,6 @@ public interface LeaveBalanceAdjustmentRepository extends JpaRepository<LeaveBal
     Optional<LeaveBalanceAdjustment> findByRequestKey(String requestKey);
 
     boolean existsByLeaveRequestId(Long leaveRequestId);
+
+    boolean existsByCompOffRequestId(Long compOffRequestId);
 }

@@ -17,7 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Rules:
  * <ul>
- *   <li>HR adds or deducts days (half days allowed); every change needs a reason
+ *   <li>Comp-Off is earned through employee requests that HR approves
+ *       (CompOffRequestService). HR can still add or deduct days here, for
+ *       corrections only (half days allowed); every change needs a reason
  *       and is kept, with who made it and when.</li>
  *   <li>The balance stays between 0 and 365 days.</li>
  *   <li>The app sends a unique key with each change. If the same change arrives

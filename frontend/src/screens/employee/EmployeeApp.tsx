@@ -23,17 +23,21 @@ import {
   THEME_CHOICES, applyTheme, onSystemThemeChange, readThemeChoice, resolveTheme, saveThemeChoice, systemPrefersDark,
   type ThemeChoice,
 } from '../../lib/theme'
-import { MAX_DAYS_BACK, listMyTimesheets, toTimesheet } from '../../lib/workCalendar'
+import { MAX_DAYS_BACK, addDays, getMyCalendar, listMyTimesheets, toTimesheet, weekStartOf } from '../../lib/workCalendar'
+import ConfirmSheet from '../../components/ConfirmSheet'
+import Spotlight from '../../components/Spotlight'
+import IdCardSheet from './IdCard'
 import TimesheetScreen from './TimesheetScreen'
 import LeaveScreen from './LeaveScreen'
 import { getMyLeaveBalances, getMyLeaveRequests, toLeaveBalance, toLeaveRequest, type LeaveBalanceRecord } from '../../lib/leave'
 import WeeklyTimesheetHistory from './WeeklyTimesheetHistory'
 import Dropdown from '../../components/Dropdown'
-import { weekCount } from '../../lib/timesheetHistory'
+import { canOpenWeek, monthWeeks, weekCount, type MonthWeekStatus } from '../../lib/timesheetHistory'
 import ChangePasswordScreen from '../shared/ChangePasswordScreen'
 import { getMyProfile, withProfileRecord } from '../../lib/profile'
 import {
-  listMyNotifications, markAllNotificationsRead, markNotificationRead, timeAgo, type NotificationRecord,
+  clearAllNotifications, clearNotification, listMyNotifications, markAllNotificationsRead, markNotificationRead,
+  notificationTarget, timeAgo, type NotificationRecord,
 } from '../../lib/notifications'
 import { listMyHolidays, upcomingHolidays, type HolidayRecord } from '../../lib/workCalendar'
 import { loadMyPhoto } from '../../lib/photos'
@@ -85,6 +89,13 @@ export default function EmployeeApp({
   const [holidayState, setHolidayState] = useState<Loaded<HolidayRecord>>({ status: 'loading' })
   // Object URL of the employee's own photo (set by HR), or null for initials.
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  // The record a tapped notification points at, on the screen it opened (outlined there).
+  const [focus, setFocus] = useState<{ tab: Tab; sub: SubScreen; key: string | null } | null>(null)
+  const [leaveTab, setLeaveTab] = useState<'leave' | 'compoff'>('leave')
+  const [confirmClearAll, setConfirmClearAll] = useState(false)
+  const [showIdCard, setShowIdCard] = useState(false)
+  // This week's weekly offs and hours, from the server's calendar (the HR schedule in force).
+  const [schedule, setSchedule] = useState<{ offs: string[]; hours: number } | null>(null)
 
   /** Shared handling for a failed request: sign out on 401, otherwise keep the message. */
   const handleError = useCallback(
@@ -169,6 +180,25 @@ export default function EmployeeApp({
     return () => setInboxOpener(null)
   }, [])
 
+  // The weekly offs and hours in force this week (from the HR schedule), for Profile.
+  useEffect(() => {
+    const controller = new AbortController()
+    const monday = weekStartOf(toIsoDate(new Date()))
+    getMyCalendar(token, monday, addDays(monday, 6), controller.signal).then((result) => {
+      if (controller.signal.aborted || !result.ok) return
+      const offs = result.data.days.filter((d) => d.weeklyOff)
+        .map((d) => new Date(`${d.date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long' }))
+      const working = result.data.days.find((d) => !d.weeklyOff)
+      setSchedule({ offs, hours: working ? Number(working.hoursPerDay) : 0 })
+    })
+    return () => controller.abort()
+  }, [token, version])
+
+  // The Leave screen opens on its first tab unless a Comp-Off notification opened it.
+  useEffect(() => {
+    if (sub !== 'leave') setLeaveTab('leave')
+  }, [sub])
+
   // This year's company holidays (published by HR).
   useEffect(() => {
     const controller = new AbortController()
@@ -180,7 +210,9 @@ export default function EmployeeApp({
     return () => controller.abort()
   }, [token, version, handleError])
 
+  /** Tapping a notification: marks it read and opens the record it is about (only the employee's own). */
   async function openNotification(n: NotificationRecord) {
+    goToNotificationTarget(n)
     if (n.read) return
     // Shown as read straight away; the server is the record.
     setNotifState((s) => (s.status === 'ready' ? { ...s, items: s.items.map((x) => (x.id === n.id ? { ...x, read: true } : x)) } : s))
@@ -191,6 +223,71 @@ export default function EmployeeApp({
       loadNotifications()
     }
   }
+
+  function goToNotificationTarget(n: NotificationRecord) {
+    const target = notificationTarget(n)
+    const gone = (what: string) => show(`This ${what} is no longer available.`, 'info')
+    switch (target.screen) {
+      case 'requests': {
+        setRequestsView(target.view)
+        setFocus({ tab: 'requests', sub: null, key: target.key })
+        goTab('requests')
+        if (target.key && target.view === 'leaves' && leaveState.status === 'ready' && !myLeaves.some((l) => l.id === target.key)) gone('leave request')
+        if (target.key && target.view === 'timesheets' && timesheetState.status === 'ready'
+          && !myTimesheets.some((t) => weekStartOf(t.date) === target.key)) gone('timesheet week')
+        return
+      }
+      case 'payslips':
+        setFocus({ tab, sub: 'payslips', key: target.key })
+        dispatch({ type: 'open', sub: 'payslips' })
+        if (target.key && docState.status === 'ready' && !payslips.some((d) => d.id === target.key)) gone('payslip')
+        return
+      case 'documents':
+        setDocFilter('All')
+        setFocus({ tab: 'documents', sub: null, key: target.key })
+        goTab('documents')
+        if (target.key && docState.status === 'ready' && !myDocs.some((d) => d.id === target.key)) gone('document')
+        return
+      case 'compoff':
+        setLeaveTab('compoff')
+        setFocus({ tab, sub: 'leave', key: target.key })
+        dispatch({ type: 'open', sub: 'leave' })
+        return
+      case 'schedule':
+        setFocus({ tab: 'profile', sub: null, key: 'schedule' })
+        goTab('profile')
+        return
+      default:
+        return
+    }
+  }
+
+  /** Clears one notification from the list. The leave, timesheet or document it is about is not touched. */
+  async function clearOne(n: NotificationRecord) {
+    setNotifState((s) => (s.status === 'ready' ? { ...s, items: s.items.filter((x) => x.id !== n.id) } : s))
+    if (!n.read) setUnread((u) => Math.max(0, u - 1))
+    const result = await clearNotification(token, n.id)
+    if (result.ok) {
+      setNotifState({ status: 'ready', items: result.data.items })
+      setUnread(result.data.unreadCount)
+    } else {
+      show(handleError(result.error).message, 'error')
+      loadNotifications()
+    }
+  }
+
+  async function clearAll() {
+    setConfirmClearAll(false)
+    const result = await clearAllNotifications(token)
+    if (result.ok) {
+      setNotifState({ status: 'ready', items: result.data.items })
+      setUnread(result.data.unreadCount)
+      show('Notifications cleared.', 'success')
+    } else show(handleError(result.error).message, 'error')
+  }
+
+  /** Whether the record with this key was the one a tapped notification opened here. */
+  const focused = (key: string) => !!focus && focus.tab === tab && focus.sub === sub && focus.key === key
 
   async function readAll() {
     const result = await markAllNotificationsRead(token)
@@ -270,7 +367,17 @@ export default function EmployeeApp({
     }, 'app'),
     [],
   )
-  const setSub = (next: SubScreen) => (next ? dispatch({ type: 'open', sub: next }) : dispatch({ type: 'back' }))
+  // The week the timesheet opens on: one picked on the home card, or this week (null).
+  const [timesheetWeek, setTimesheetWeek] = useState<string | null>(null)
+  const setSub = (next: SubScreen) => {
+    if (next === 'timesheet') setTimesheetWeek(null)
+    if (next) dispatch({ type: 'open', sub: next })
+    else dispatch({ type: 'back' })
+  }
+  function openTimesheetWeek(weekStart: string) {
+    dispatch({ type: 'open', sub: 'timesheet' })
+    setTimesheetWeek(weekStart)
+  }
   function openDocs(filter: DocFilter) {
     setDocFilter(filter)
     goTab('documents')
@@ -302,7 +409,7 @@ export default function EmployeeApp({
     ) : leaveState.status === 'loading' ? (
       <LoadingCard label="Loading leave requests" />
     ) : (
-      <LeaveList items={myLeaves} />
+      <LeaveList items={myLeaves} highlight={focused} />
     )
 
   const timesheetHistory =
@@ -311,7 +418,7 @@ export default function EmployeeApp({
     ) : timesheetState.status === 'loading' ? (
       <LoadingCard label="Loading timesheets" />
     ) : (
-      <WeeklyTimesheetHistory items={myTimesheets} />
+      <WeeklyTimesheetHistory items={myTimesheets} highlightWeek={focus && focus.tab === tab && focus.sub === sub ? focus.key : null} />
     )
 
   let screen: ReactNode
@@ -332,7 +439,9 @@ export default function EmployeeApp({
     // The screen shows its own success message; after a submission the history reloads.
     screen = (
       <TimesheetScreen
+        key={timesheetWeek ?? 'this-week'}
         token={token}
+        initialWeekStart={timesheetWeek ?? undefined}
         historyWeeks={weekCount(myTimesheets)}
         history={timesheetHistory}
         onBack={() => setSub(null)}
@@ -351,6 +460,8 @@ export default function EmployeeApp({
         onError={handleError}
         onRetry={() => setVersion((v) => v + 1)}
         onSubmitted={() => setVersion((v) => v + 1)}
+        initialTab={leaveTab}
+        highlightCompOffId={focus?.sub === 'leave' ? focus.key : null}
       />
     )
   } else if (sub === 'payslips') {
@@ -361,6 +472,7 @@ export default function EmployeeApp({
         {latest ? (
           <>
             <Section title="Latest">
+              <Spotlight on={focused(latest.id)}>
               <Card className="overflow-hidden">
                 <div className="flex items-center gap-3 border-l-[3px] border-navy-900 px-4 py-4">
                   <IconTile icon="receipt" tone="navy" />
@@ -373,10 +485,11 @@ export default function EmployeeApp({
                   </Button>
                 </div>
               </Card>
+              </Spotlight>
             </Section>
             {older.length > 0 && (
               <Section title="Earlier">
-                <DocList items={older} onDownload={download} />
+                <DocList items={older} onDownload={download} highlight={focused} />
               </Section>
             )}
           </>
@@ -391,10 +504,21 @@ export default function EmployeeApp({
     screen = (
       <>
         <TopBar title="Notifications" subtitle={unread ? `${unread} unread` : 'All read'} onBack={() => setSub(null)} />
-        {unread > 0 && (
-          <div className="flex justify-end px-5 pt-3">
-            <TextLink onClick={readAll}>Mark all as read</TextLink>
+        {notifications.length > 0 && (
+          <div className="flex justify-end gap-4 px-5 pt-3">
+            {unread > 0 && <TextLink onClick={readAll}>Mark all as read</TextLink>}
+            <TextLink onClick={() => setConfirmClearAll(true)}>Clear all</TextLink>
           </div>
+        )}
+        {confirmClearAll && (
+          <ConfirmSheet
+            title="Clear all notifications?"
+            message="They are removed from this list only. Your leave, timesheets, payslips and documents stay as they are."
+            confirmLabel="Clear all"
+            danger
+            onCancel={() => setConfirmClearAll(false)}
+            onConfirm={clearAll}
+          />
         )}
         <Section>
           {notifState.status === 'error' ? (
@@ -406,22 +530,31 @@ export default function EmployeeApp({
           ) : (
             <List>
               {notifications.map((n) => (
-                <button
-                  key={n.id}
-                  type="button"
-                  onClick={() => openNotification(n)}
-                  aria-label={`${n.read ? '' : 'Unread: '}${n.title}`}
-                  className={`flex w-full gap-3 px-4 py-3.5 text-left ${n.read ? 'hover:bg-mist-50/60' : 'bg-mist-50/70 hover:bg-mist-50'}`}
-                >
-                  <span className={`mt-[7px] h-2 w-2 shrink-0 rounded-full ${n.read ? 'bg-line-strong' : notificationDot(n.type)}`} />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline justify-between gap-3">
-                      <span className={`text-[15px] text-ink ${n.read ? 'font-medium' : 'font-semibold'}`}>{n.title}</span>
-                      <span className="tnum shrink-0 text-[12px] text-ink-muted">{timeAgo(n.createdAt)}</span>
+                <div key={n.id} className={`flex items-start ${n.read ? '' : 'bg-mist-50/70'}`}>
+                  <button
+                    type="button"
+                    onClick={() => openNotification(n)}
+                    aria-label={`${n.read ? '' : 'Unread: '}${n.title}. Open`}
+                    className={`flex min-w-0 flex-1 gap-3 py-3.5 pl-4 pr-1 text-left ${n.read ? 'hover:bg-mist-50/60' : 'hover:bg-mist-50'}`}
+                  >
+                    <span className={`mt-[7px] h-2 w-2 shrink-0 rounded-full ${n.read ? 'bg-line-strong' : notificationDot(n.type)}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline justify-between gap-3">
+                        <span className={`text-[15px] text-ink ${n.read ? 'font-medium' : 'font-semibold'}`}>{n.title}</span>
+                        <span className="tnum shrink-0 text-[12px] text-ink-muted">{timeAgo(n.createdAt)}</span>
+                      </span>
+                      <span className="mt-0.5 block text-[13px] leading-relaxed text-ink-muted">{n.message}</span>
                     </span>
-                    <span className="mt-0.5 block text-[13px] leading-relaxed text-ink-muted">{n.message}</span>
-                  </span>
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => clearOne(n)}
+                    aria-label={`Clear notification: ${n.title}`}
+                    className="mr-1.5 mt-2 grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-muted hover:bg-mist-50 hover:text-ink"
+                  >
+                    <Icon name="x" className="h-4 w-4" />
+                  </button>
+                </div>
               ))}
             </List>
           )}
@@ -464,7 +597,9 @@ export default function EmployeeApp({
         pendingLeaveCount={pendingLeaves.length}
         payslips={payslips}
         leaveBalance={leaveBalance}
+        weeklyOffs={schedule ? schedule.offs : null}
         onOpen={setSub}
+        onOpenWeek={openTimesheetWeek}
         onOpenDocs={openDocs}
         onOpenRequests={openRequests}
         onOpenProfile={() => dispatch({ type: 'header-profile' })}
@@ -512,7 +647,7 @@ export default function EmployeeApp({
           ) : shown.length === 0 ? (
             <EmptyState icon="file" title="Not issued yet" message="HR uploads this document when it is ready. You’ll get a notification." />
           ) : (
-            <DocList items={shown} onDownload={download} />
+            <DocList items={shown} onDownload={download} highlight={focused} />
           )}
         </Section>
       </>
@@ -524,15 +659,31 @@ export default function EmployeeApp({
         <Section>
           <Card className="flex items-center gap-4 px-4 py-5">
             <Avatar name={user.name} size="lg" photoUrl={photoUrl} />
-            <div className="min-w-0">
-              <p className="truncate text-[18px] font-semibold text-ink">{user.name}</p>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[18px] font-semibold text-ink">{user.displayName ?? user.name}</p>
               {user.designation && <p className="truncate text-[14px] text-ink-muted">{user.designation}</p>}
               <p className="tnum mt-1.5">
                 <Tag>{user.id}</Tag>
               </p>
             </div>
+            {/* Opens the virtual ID card as a pop-up. */}
+            <button
+              type="button"
+              onClick={() => setShowIdCard(true)}
+              aria-label="Show virtual ID card"
+              aria-haspopup="dialog"
+              className="press group flex shrink-0 flex-col items-center gap-1 self-center transition-transform duration-150"
+            >
+              <span className="grid h-11 w-11 place-items-center rounded-xl border border-line-strong bg-mist-50 text-navy-700 group-hover:bg-mist-100">
+                <Icon name="idBadge" className="h-6 w-6" />
+              </span>
+              <span className="text-[11px] font-medium text-ink-soft">Virtual ID</span>
+            </button>
           </Card>
         </Section>
+        {showIdCard && (
+          <IdCardSheet token={token} photoUrl={photoUrl} onClose={() => setShowIdCard(false)} onError={handleError} />
+        )}
         <Section title="Work">
           <Card className="divide-y divide-line">
             {/* Manager and location are not stored by the backend yet, so they are not shown. */}
@@ -547,6 +698,15 @@ export default function EmployeeApp({
             <DetailRow icon="phone" label="Phone" value={user.phone} />
           </Card>
           <p className="mt-2 px-1 text-[12px] text-ink-muted">To correct any detail, contact HR.</p>
+        </Section>
+        <Section title="Work schedule">
+          <Spotlight on={focused('schedule')}>
+            <Card className="divide-y divide-line">
+              <DetailRow icon="calendar" label="Weekly off" value={schedule ? schedule.offs.join(' and ') || 'None' : ''} />
+              <DetailRow icon="clock" label="Working hours" value={schedule?.hours ? `${schedule.hours} h a working day` : ''} />
+            </Card>
+          </Spotlight>
+          <p className="mt-2 px-1 text-[12px] text-ink-muted">Set by HR. You get a notification when it changes.</p>
         </Section>
         <Section title="Appearance">
           <Segmented options={THEME_CHOICES} value={themeChoice} onChange={chooseTheme} />
@@ -632,9 +792,11 @@ function useEmployeeTheme() {
 
 function HomeScreen({
   user, photoUrl, unread, holidays, holidaysLoading, myTimesheets, myDocs, pendingTsCount, pendingLeaveCount, payslips,
-  leaveBalance, onOpen, onOpenDocs, onOpenRequests, onOpenProfile, onDownload,
+  leaveBalance, weeklyOffs, onOpen, onOpenWeek, onOpenDocs, onOpenRequests, onOpenProfile, onDownload,
 }: {
   user: Employee
+  /** The employee's weekly offs this week (from their HR schedule), or null while loading. */
+  weeklyOffs: string[] | null
   photoUrl: string | null
   unread: number
   holidays: HolidayRecord[]
@@ -646,6 +808,8 @@ function HomeScreen({
   payslips: EmployeeDocument[]
   leaveBalance: LeaveBalance[]
   onOpen: (s: SubScreen) => void
+  /** Opens the timesheet on the week starting this Monday. */
+  onOpenWeek: (weekStart: string) => void
   onOpenDocs: (f: DocFilter) => void
   onOpenRequests: (v: 'timesheets' | 'leaves') => void
   /** The header shortcut: opens the same Profile screen as the footer tab. */
@@ -656,7 +820,8 @@ function HomeScreen({
   const month = toIsoDate(now).slice(0, 7)
   const monthEntries = myTimesheets.filter((t) => t.date.startsWith(month) && t.status !== 'Rejected')
   const monthHours = monthEntries.reduce((s, t) => s + t.hours, 0)
-  const week = currentWorkWeek(now)
+  const week = currentWorkWeek(now, weeklyOffs)
+  const monthWeekList = monthWeeks(myTimesheets, toIsoDate(now))
   const weekHours = week.reduce((s, d) => s + (myTimesheets.find((t) => t.date === d.iso)?.hours ?? 0), 0)
   const totalLeft = leaveBalance.reduce((s, b) => s + b.left, 0)
   const latestPayslip = payslips[0]
@@ -694,7 +859,7 @@ function HomeScreen({
 
       <div className="px-5 pt-3">
         <p className="text-[14px] text-ink-muted">{greeting()},</p>
-        <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink">{firstName(user.name)}</h1>
+        <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink">{user.displayName ?? user.name}</h1>
       </div>
 
       {/* Summary panel */}
@@ -724,36 +889,47 @@ function HomeScreen({
 
       {/* Summary cards: wide timesheet card, then leave beside payslips and documents */}
       <section className="space-y-3 px-5 pt-3">
-        <CardButton onClick={() => onOpen('timesheet')} className="block w-full p-4" label="Timesheet, this week">
-          <div className="flex items-center gap-3">
+        <div className="card-surface rounded-2xl border border-line p-4">
+          <button type="button" onClick={() => onOpen('timesheet')} aria-label="Timesheet, this week" className="press flex w-full items-center gap-3 text-left transition-transform duration-150">
             <IconTile icon="clock" />
             <div className="flex-1">
               <p className="text-[15px] font-semibold text-ink">Timesheet</p>
               <p className="tnum text-[13px] text-ink-muted">{weekHours} h this week</p>
             </div>
             <Icon name="chevronRight" className="h-[18px] w-[18px] text-ink-muted/70" />
-          </div>
-          <div className="mt-4 grid grid-cols-5 gap-2">
-            {week.map((d) => {
-              const entry = myTimesheets.find((t) => t.date === d.iso)
-              const fill = entry ? Math.max(18, Math.min(100, (entry.hours / 9) * 100)) : 0
-              const bar = entry?.status === 'Approved' ? 'bg-approved' : entry?.status === 'Rejected' ? 'bg-rejected' : 'bg-pending'
+          </button>
+          {/* This month, week by week (same bars as before, one per week): each week's
+              status comes from all of its saved days. Tapping a week opens that week. */}
+          <div className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${monthWeekList.length}, minmax(0, 1fr))` }}>
+            {monthWeekList.map((w) => {
+              const bar = w.status === 'Approved' ? 'bg-approved' : w.status === 'Rejected' ? 'bg-rejected' : w.status === 'Pending' ? 'bg-pending' : null
+              const openable = canOpenWeek(w.weekStart, toIsoDate(now))
               return (
-                <div key={d.iso} className="flex flex-col items-center gap-1.5">
-                  <div className="flex h-10 w-full items-end overflow-hidden rounded-md bg-mist-50">
-                    {entry && <div className={`w-full rounded-md ${bar}`} style={{ height: `${fill}%` }} />}
+                <button
+                  key={w.weekStart}
+                  type="button"
+                  disabled={!openable}
+                  onClick={() => onOpenWeek(w.weekStart)}
+                  aria-label={`${w.label} (${w.range}): ${w.status}. ${openable ? 'Open this week' : 'Opens when the week starts'}`}
+                  className="press flex min-w-0 flex-col items-center gap-1.5 rounded-lg transition-transform duration-150 disabled:cursor-default"
+                >
+                  <div
+                    className={`flex h-10 w-full items-end overflow-hidden rounded-md ${bar ? 'bg-mist-50' : 'bg-mist-50 ring-1 ring-inset ring-line'}`}
+                  >
+                    {bar && <div className={`h-full w-full rounded-md ${bar}`} />}
                   </div>
-                  <span className={`text-[11px] ${d.isToday ? 'font-semibold text-navy-900' : 'text-ink-muted'}`}>{d.label}</span>
-                </div>
+                  <span className={`whitespace-nowrap text-[11px] ${w.current ? 'font-semibold text-navy-900' : 'text-ink-muted'}`}>{w.label}</span>
+                </button>
               )
             })}
           </div>
-          <div className="mt-3 flex gap-4 text-[11px] text-ink-muted">
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-muted">
             <Legend className="bg-approved" label="Approved" />
             <Legend className="bg-pending" label="Pending" />
             <Legend className="bg-rejected" label="Rejected" />
+            <Legend className="bg-mist-50 ring-1 ring-inset ring-line" label="Not submitted" />
           </div>
-        </CardButton>
+        </div>
 
         <div className="grid grid-cols-[1.15fr_1fr] gap-3">
           <CardButton onClick={() => onOpen('leave')} className="flex flex-col p-4" label="Leave">
@@ -905,6 +1081,19 @@ function HolidayRow({ holiday, past }: { holiday: HolidayRecord; past: boolean }
   )
 }
 
+/** A week's status in the existing colours: green approved, orange pending, red rejected, neutral not submitted. */
+function WeekStatusPill({ status }: { status: MonthWeekStatus }) {
+  if (status === 'Not submitted') {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-mist-50 px-2.5 py-1 text-[12px] font-medium text-ink-muted ring-1 ring-inset ring-line">
+        <span className="h-1.5 w-1.5 rounded-full bg-line-strong" />
+        Not submitted
+      </span>
+    )
+  }
+  return <StatusBadge status={status} />
+}
+
 function Legend({ className, label }: { className: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
@@ -922,13 +1111,14 @@ function TextLink({ children, onClick }: { children: ReactNode; onClick: () => v
   )
 }
 
-function LeaveList({ items }: { items: LeaveRequest[] }) {
+function LeaveList({ items, highlight }: { items: LeaveRequest[]; highlight?: (id: string) => boolean }) {
   if (items.length === 0)
     return <EmptyState icon="calendar" title="No leave applications" message="Applications you submit will appear here with their status." />
   return (
     <List>
       {items.map((l) => (
-        <div key={l.id} className="px-4 py-3.5">
+        <Spotlight key={l.id} on={!!highlight?.(l.id)}>
+        <div className="px-4 py-3.5">
           <div className="flex items-center justify-between gap-3">
             <p className="text-[15px] font-medium text-ink">
               {l.type} leave
@@ -946,17 +1136,20 @@ function LeaveList({ items }: { items: LeaveRequest[] }) {
             </div>
           )}
         </div>
+        </Spotlight>
       ))}
     </List>
   )
 }
 
-function DocList({ items, onDownload }: { items: EmployeeDocument[]; onDownload: (doc: EmployeeDocument) => void }) {
+function DocList({
+  items, onDownload, highlight,
+}: { items: EmployeeDocument[]; onDownload: (doc: EmployeeDocument) => void; highlight?: (id: string) => boolean }) {
   return (
     <List>
       {items.map((d) => (
+        <Spotlight key={d.id} on={!!highlight?.(d.id)}>
         <ListRow
-          key={d.id}
           icon={d.type === 'Payslip' ? 'receipt' : 'file'}
           title={d.title}
           subtitle={<span className="tnum">Issued {formatDate(d.issuedOn)}</span>}
@@ -970,6 +1163,7 @@ function DocList({ items, onDownload }: { items: EmployeeDocument[]; onDownload:
             </button>
           }
         />
+        </Spotlight>
       ))}
     </List>
   )

@@ -31,11 +31,21 @@ export interface ApprovalCounts {
 export interface ApprovalSummary {
   timesheets: ApprovalCounts
   leave: ApprovalCounts
+  /** Comp-Off requests (older servers leave it out). */
+  compOff?: ApprovalCounts
 }
 
+export const NO_COUNTS: ApprovalCounts = { pending: 0, approved: 0, rejected: 0 }
+
 export const EMPTY_SUMMARY: ApprovalSummary = {
-  timesheets: { pending: 0, approved: 0, rejected: 0 },
-  leave: { pending: 0, approved: 0, rejected: 0 },
+  timesheets: NO_COUNTS,
+  leave: NO_COUNTS,
+  compOff: NO_COUNTS,
+}
+
+/** Everything waiting for HR: timesheet weeks, leave and Comp-Off requests. */
+export function pendingTotal(summary: ApprovalSummary): number {
+  return summary.timesheets.pending + summary.leave.pending + (summary.compOff?.pending ?? 0)
 }
 
 /** A stable key for one employee-week. */

@@ -28,7 +28,7 @@ public class LeaveRequestLeaveDays implements LeaveDays {
             LocalDate first = r.getStartDate().isBefore(from) ? from : r.getStartDate();
             LocalDate last = r.getEndDate().isAfter(to) ? to : r.getEndDate();
             for (LocalDate d = first; !d.isAfter(last); d = d.plusDays(1)) {
-                days.add(new LeaveDay(d, Portion.FULL_DAY, status));
+                days.add(new LeaveDay(d, Portion.FULL_DAY, status, r.getLeaveType()));
             }
         }
         return days;

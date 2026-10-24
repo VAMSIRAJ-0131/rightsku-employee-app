@@ -91,6 +91,8 @@ class ApprovalAndLeaveDatabaseTest {
     void removeOnlyThisTestsRows() {
         jdbc.update("DELETE FROM audit_history WHERE entity_id LIKE ? OR (entity_type = 'LEAVE_REQUEST' AND entity_id IN "
                 + "(SELECT id::text FROM leave_requests WHERE employee_id = ?))", code + "%", employeeId);
+        // Notifications (V10) point at the account, so they go before it.
+        jdbc.update("DELETE FROM notifications WHERE user_id = ?", userId);
         jdbc.update("DELETE FROM leave_balance_adjustments WHERE employee_id = ?", employeeId);
         jdbc.update("DELETE FROM leave_requests WHERE employee_id = ?", employeeId);
         jdbc.update("DELETE FROM leave_balances WHERE employee_id = ?", employeeId);

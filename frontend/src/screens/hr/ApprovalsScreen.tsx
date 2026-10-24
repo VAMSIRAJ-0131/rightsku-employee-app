@@ -1,4 +1,4 @@
-// HR approvals: Timesheets and Leave tabs, a status filter, employee search,
+// HR approvals: Timesheets, Leave and Comp-Off tabs, a status filter, employee search,
 // compact cards, and a confirmation sheet for every decision (a reason is
 // required to reject). Everything comes from the server; after each
 // decision the list and all counts are loaded again.
@@ -8,8 +8,12 @@ import { Avatar, Button, Card, EmptyState, Notice, Section, Segmented, Spinner, 
 import type { ApiError } from '../../lib/api'
 import { formatShortDate, plural } from '../../lib/format'
 import {
-  listTimesheetWeeks, reviewTimesheetWeek, weekKey, type ApprovalSummary, type HrTimesheetWeek,
+  NO_COUNTS, listTimesheetWeeks, pendingTotal as totalWaiting, reviewTimesheetWeek, weekKey,
+  type ApprovalSummary, type HrTimesheetWeek,
 } from '../../lib/approvals'
+import {
+  compOffDayLabel, compOffDaysLabel, decideCompOff, listCompOffRequests, type CompOffRequestRecord,
+} from '../../lib/compOffRequests'
 import {
   days as dayCount, decideLeave, getLeaveBalances, listLeaveRequests, type LeaveBalanceRecord, type LeaveRequestRecord,
 } from '../../lib/leave'
@@ -18,18 +22,21 @@ import {
   type Decision, type ReviewStatus,
 } from '../../lib/approvalView'
 
-export type ApprovalView = 'timesheets' | 'leaves'
+export type ApprovalView = 'timesheets' | 'leaves' | 'compoff'
 
 /** What the confirmation sheet is about to decide. */
 type Pending =
   | { kind: 'week'; week: HrTimesheetWeek; decision: Decision }
   | { kind: 'leave'; request: LeaveRequestRecord; decision: Decision }
+  | { kind: 'compoff'; request: CompOffRequestRecord; decision: Decision }
 
 export default function ApprovalsScreen({
-  token, view, onViewChange, summary, onChanged, onError, onToast,
+  token, view, onViewChange, summary, onChanged, onError, onToast, initialStatus = 'PENDING',
 }: {
   token: string
   view: ApprovalView
+  /** The status tab to open on (a dashboard box can ask for Approved or Rejected). */
+  initialStatus?: ReviewStatus
   onViewChange: (view: ApprovalView) => void
   /** Counts from the server (owned by HrApp, reloaded through onChanged). */
   summary: ApprovalSummary
@@ -38,10 +45,11 @@ export default function ApprovalsScreen({
   onError: (error: ApiError) => ApiError
   onToast: (message: string, tone?: 'success' | 'error') => void
 }) {
-  const [status, setStatus] = useState<ReviewStatus>('PENDING')
+  const [status, setStatus] = useState<ReviewStatus>(initialStatus)
   const [search, setSearch] = useState('')
   const [weeks, setWeeks] = useState<HrTimesheetWeek[] | null>(null)
   const [leaves, setLeaves] = useState<LeaveRequestRecord[] | null>(null)
+  const [compOffs, setCompOffs] = useState<CompOffRequestRecord[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
   const [balances, setBalances] = useState<Record<number, LeaveBalanceRecord[]>>({})
@@ -50,8 +58,10 @@ export default function ApprovalsScreen({
   const [sheetError, setSheetError] = useState<string | null>(null)
 
   const isTs = view === 'timesheets'
-  const counts = isTs ? summary.timesheets : summary.leave
-  const pendingTotal = summary.timesheets.pending + summary.leave.pending
+  const isCompOff = view === 'compoff'
+  const compOffCounts = summary.compOff ?? NO_COUNTS
+  const counts = isTs ? summary.timesheets : isCompOff ? compOffCounts : summary.leave
+  const pendingTotal = totalWaiting(summary)
 
   // The list for the open tab and status, from the server.
   useEffect(() => {
@@ -64,6 +74,13 @@ export default function ApprovalsScreen({
         if (r.ok) setWeeks(r.data)
         else setLoadError(onError(r.error).message)
       })
+    } else if (isCompOff) {
+      setCompOffs(null)
+      listCompOffRequests(token, status, controller.signal).then((r) => {
+        if (controller.signal.aborted) return
+        if (r.ok) setCompOffs(r.data)
+        else setLoadError(onError(r.error).message)
+      })
     } else {
       setLeaves(null)
       listLeaveRequests(token, status, controller.signal).then((r) => {
@@ -73,11 +90,11 @@ export default function ApprovalsScreen({
       })
     }
     return () => controller.abort()
-  }, [token, isTs, status, version, onError])
+  }, [token, isTs, isCompOff, status, version, onError])
 
   // Available balance for the employees with pending leave (one request per employee).
   useEffect(() => {
-    if (isTs || status !== 'PENDING' || !leaves) return
+    if (view !== 'leaves' || status !== 'PENDING' || !leaves) return
     const controller = new AbortController()
     const ids = [...new Set(leaves.map((l) => l.employeeId))]
     for (const id of ids) {
@@ -86,13 +103,14 @@ export default function ApprovalsScreen({
       })
     }
     return () => controller.abort()
-  }, [token, isTs, status, leaves])
+  }, [token, view, status, leaves])
 
   const shownWeeks = useMemo(() => (weeks ?? []).filter((w) => matchesSearch(search, w.employeeName, w.employeeCode)), [weeks, search])
   const shownLeaves = useMemo(() => (leaves ?? []).filter((l) => matchesSearch(search, l.employeeName, l.employeeCode)), [leaves, search])
-  const loading = isTs ? weeks === null : leaves === null
-  const shownCount = isTs ? shownWeeks.length : shownLeaves.length
-  const loadedCount = isTs ? (weeks ?? []).length : (leaves ?? []).length
+  const shownCompOffs = useMemo(() => (compOffs ?? []).filter((c) => matchesSearch(search, c.employeeName, c.employeeCode)), [compOffs, search])
+  const loading = isTs ? weeks === null : isCompOff ? compOffs === null : leaves === null
+  const shownCount = isTs ? shownWeeks.length : isCompOff ? shownCompOffs.length : shownLeaves.length
+  const loadedCount = isTs ? (weeks ?? []).length : isCompOff ? (compOffs ?? []).length : (leaves ?? []).length
 
   function reload() {
     setVersion((v) => v + 1)
@@ -105,7 +123,9 @@ export default function ApprovalsScreen({
     setSheetError(null)
     const result = pending.kind === 'week'
       ? await reviewTimesheetWeek(token, pending.week, pending.decision === 'approve' ? 'APPROVE' : 'REJECT', reason)
-      : await decideLeave(token, pending.request.id, pending.decision, reason)
+      : pending.kind === 'compoff'
+        ? await decideCompOff(token, pending.request.id, pending.decision, reason)
+        : await decideLeave(token, pending.request.id, pending.decision, reason)
     setSaving(false)
     if (result.ok) {
       const who = pending.kind === 'week' ? pending.week.employeeName : pending.request.employeeName
@@ -129,6 +149,7 @@ export default function ApprovalsScreen({
           options={[
             { id: 'timesheets', label: 'Timesheets', count: summary.timesheets.pending },
             { id: 'leaves', label: 'Leave', count: summary.leave.pending },
+            { id: 'compoff', label: 'Comp-Off', count: compOffCounts.pending },
           ]}
           value={view}
           onChange={(v) => {
@@ -170,7 +191,7 @@ export default function ApprovalsScreen({
       </Section>
 
       <Section
-        title={`${statusLabel(status)} ${isTs ? 'timesheets' : 'leave requests'} (${search ? `${shownCount} of ${loadedCount}` : shownCount})`}
+        title={`${statusLabel(status)} ${isTs ? 'timesheets' : isCompOff ? 'Comp-Off requests' : 'leave requests'} (${search ? `${shownCount} of ${loadedCount}` : shownCount})`}
       >
         {loadError ? (
           <div role="alert" className="space-y-3">
@@ -200,6 +221,13 @@ export default function ApprovalsScreen({
                     setPending({ kind: 'week', week: w, decision })
                   }} />
                 ))
+              : isCompOff
+              ? shownCompOffs.map((c) => (
+                  <CompOffCard key={c.id} request={c} onDecide={(decision) => {
+                    setSheetError(null)
+                    setPending({ kind: 'compoff', request: c, decision })
+                  }} />
+                ))
               : shownLeaves.map((l) => (
                   <LeaveCard key={l.id} request={l} balance={balances[l.employeeId]?.find((b) => b.leaveType === l.leaveType)}
                     onDecide={(decision) => {
@@ -216,6 +244,9 @@ export default function ApprovalsScreen({
           decision={pending.decision}
           question={pending.kind === 'week'
             ? decisionQuestion(pending.decision, pending.week.employeeName, 'timesheet', rangeLabel(pending.week.weekStart, pending.week.weekEnd))
+            : pending.kind === 'compoff'
+            ? decisionQuestion(pending.decision, pending.request.employeeName,
+                `Comp-Off (${compOffDaysLabel(pending.request.days).toLowerCase()})`, formatShortDate(pending.request.workDate))
             : decisionQuestion(pending.decision, pending.request.employeeName, `${pending.request.label} leave`, rangeLabel(pending.request.startDate, pending.request.endDate))}
           saving={saving}
           error={sheetError}
@@ -357,6 +388,33 @@ function LeaveCard({
       )}
       {request.status === 'PENDING'
         ? <DecisionButtons onDecide={onDecide} label={`${request.label} leave of ${request.employeeName ?? ''} for ${range}`} />
+        : <DecidedLine status={request.status} at={request.reviewedAt} note={request.reviewNote} />}
+    </Card>
+  )
+}
+
+function CompOffCard({ request, onDecide }: { request: CompOffRequestRecord; onDecide: (d: Decision) => void }) {
+  const day = compOffDayLabel({
+    date: request.workDate, kind: request.dayKind === 'HOLIDAY' ? 'HOLIDAY' : 'WEEKLY_OFF', holidayName: request.holidayName,
+  })
+  return (
+    <Card className="p-3.5">
+      <CardHeader name={request.employeeName} code={request.employeeCode} status={request.status} />
+      <p className="tnum mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-ink-soft">
+        <span className="font-semibold text-ink">Comp-Off</span>
+        <span aria-hidden="true">·</span>
+        <span className="font-medium text-ink">Worked {day}</span>
+        <span aria-hidden="true">·</span>
+        <span>{compOffDaysLabel(request.days)}</span>
+      </p>
+      <p className="mt-1.5 text-[13px] leading-snug text-ink-soft">{request.reason}</p>
+      {request.status === 'PENDING' && (
+        <p className="mt-2 rounded-md bg-mist-50 px-2.5 py-1.5 text-[12px] text-ink-soft">
+          Approving adds {Number(request.days) === 0.5 ? 'half a day' : '1 day'} to the Comp-Off balance.
+        </p>
+      )}
+      {request.status === 'PENDING'
+        ? <DecisionButtons onDecide={onDecide} label={`Comp-Off of ${request.employeeName ?? ''} for ${request.workDate}`} />
         : <DecidedLine status={request.status} at={request.reviewedAt} note={request.reviewNote} />}
     </Card>
   )

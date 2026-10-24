@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * HR: timesheet and leave approvals, approval counts, and leave balances.
+ * HR: timesheet, leave and Comp-Off approvals, approval counts, and leave balances.
  * /api/hr/** requires the HR_ADMIN role (see SecurityConfig); the reviewer is
  * always taken from the token.
  */
@@ -26,16 +26,18 @@ public class HrApprovalController {
 
     private final HrTimesheetService timesheets;
     private final LeaveService leave;
+    private final CompOffRequestService compOff;
 
-    public HrApprovalController(HrTimesheetService timesheets, LeaveService leave) {
+    public HrApprovalController(HrTimesheetService timesheets, LeaveService leave, CompOffRequestService compOff) {
         this.timesheets = timesheets;
         this.leave = leave;
+        this.compOff = compOff;
     }
 
     /** Pending, approved and rejected counts for the home screen and Approvals tabs. */
     @GetMapping("/approvals/summary")
     public ApprovalSummaryResponse summary() {
-        return timesheets.summary();
+        return timesheets.summary().withCompOff(compOff.counts());
     }
 
     /** Timesheet weeks with this status (default PENDING), one row per employee and week. */
@@ -66,6 +68,25 @@ public class HrApprovalController {
     public LeaveRequestResponse rejectLeave(
             @PathVariable long id, @Valid @RequestBody(required = false) ReviewNoteRequest body, @AuthenticationPrincipal Jwt jwt) {
         return leave.reject(id, body == null ? null : body.note(), actorId(jwt));
+    }
+
+    /** Comp-Off requests with this status (default PENDING). */
+    @GetMapping("/comp-off-requests")
+    public List<CompOffRequestResponse> compOffRequests(@RequestParam(required = false) String status) {
+        return compOff.withStatus(status);
+    }
+
+    /** Approve: the days are credited to the employee's Comp-Off balance once. */
+    @PostMapping("/comp-off-requests/{id}/approve")
+    public CompOffRequestResponse approveCompOff(
+            @PathVariable long id, @Valid @RequestBody(required = false) ReviewNoteRequest body, @AuthenticationPrincipal Jwt jwt) {
+        return compOff.approve(id, body == null ? null : body.note(), actorId(jwt));
+    }
+
+    @PostMapping("/comp-off-requests/{id}/reject")
+    public CompOffRequestResponse rejectCompOff(
+            @PathVariable long id, @Valid @RequestBody(required = false) ReviewNoteRequest body, @AuthenticationPrincipal Jwt jwt) {
+        return compOff.reject(id, body == null ? null : body.note(), actorId(jwt));
     }
 
     @GetMapping("/employees/{employeeId}/leave-balances")

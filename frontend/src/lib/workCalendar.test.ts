@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildMonthGrid, checkDayHours, listMyTimesheets, monthRange, shiftMonth,
-  toTimesheet, validateHoliday, validateSchedule, validateTimesheet, weekStartOf,
+  earliestScheduleStart, mondaysIn, monthOf, toTimesheet, weeklyOffHint, validateHoliday, validateSchedule, validateTimesheet, weekStartOf,
   type CalendarDay, type DayCell, type Weekday,
 } from './workCalendar'
 
@@ -123,15 +123,58 @@ describe('timesheet form', () => {
 describe('HR schedule and holiday forms', () => {
   it('needs at least one working day, quarter hours and a start date', () => {
     const all: Weekday[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']
-    expect(validateSchedule({ weeklyOffs: ['SUNDAY'], hoursPerDay: '8', effectiveFrom: '2026-10-20' }, TODAY)).toEqual({})
+    expect(validateSchedule({ weeklyOffs: ['SATURDAY', 'SUNDAY'], hoursPerDay: '8', effectiveFrom: '2026-10-19' }, TODAY)).toEqual({})
     expect(Object.keys(validateSchedule({ weeklyOffs: all, hoursPerDay: '7.2', effectiveFrom: '' }, TODAY)).sort())
       .toEqual(['effectiveFrom', 'hoursPerDay', 'weeklyOffs'])
-    expect(validateSchedule({ weeklyOffs: [], hoursPerDay: '9.75', effectiveFrom: TODAY }, TODAY)).toEqual({})
+    expect(validateSchedule({ weeklyOffs: ['MONDAY', 'SUNDAY'], hoursPerDay: '9.75', effectiveFrom: '2026-10-12' }, TODAY)).toEqual({})
   })
 
-  it('refuses a start date in the past, like the server', () => {
-    expect(validateSchedule({ weeklyOffs: ['SUNDAY'], hoursPerDay: '8', effectiveFrom: '2026-10-13' }, TODAY).effectiveFrom)
-      .toBeDefined()
+  it('needs exactly two weekly off days, any two of the seven', () => {
+    const days: Weekday[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']
+    let pairs = 0
+    for (let i = 0; i < days.length; i++) {
+      for (let j = i + 1; j < days.length; j++) {
+        expect(validateSchedule({ weeklyOffs: [days[i], days[j]], hoursPerDay: '9', effectiveFrom: '2026-10-19' }, TODAY), `${days[i]}+${days[j]}`)
+          .toEqual({})
+        pairs++
+      }
+    }
+    expect(pairs).toBe(21)
+    for (const offs of [[], ['SUNDAY'], ['MONDAY', 'TUESDAY', 'WEDNESDAY'], days] as Weekday[][]) {
+      expect(validateSchedule({ weeklyOffs: offs, hoursPerDay: '9', effectiveFrom: '2026-10-19' }, TODAY).weeklyOffs, offs.join('+'))
+        .toContain('Choose exactly two weekly off days')
+    }
+    expect(weeklyOffHint(1)).toBe('Choose exactly two weekly off days (1 of 2 chosen).')
+    expect(weeklyOffHint(3)).toBe('Choose exactly two weekly off days (3 chosen; remove 1).')
+    expect(weeklyOffHint(2)).toBe('')
+  })
+
+  it('lists the Mondays of a month for the date picker', () => {
+    expect(mondaysIn('2026-10')).toEqual(['2026-10-05', '2026-10-12', '2026-10-19', '2026-10-26'])
+    expect(mondaysIn('2026-06')).toEqual(['2026-06-01', '2026-06-08', '2026-06-15', '2026-06-22', '2026-06-29'])
+    expect(monthOf('2026-10-19')).toBe('2026-10')
+  })
+
+  it('starts a schedule on a Monday only, like the server', () => {
+    const values = (effectiveFrom: string) => ({ weeklyOffs: ['TUESDAY', 'WEDNESDAY'] as Weekday[], hoursPerDay: '9', effectiveFrom })
+    expect(validateSchedule(values(TODAY), TODAY).effectiveFrom).toContain('Choose Monday 12 Oct 2026')
+    expect(validateSchedule(values('2026-10-18'), TODAY).effectiveFrom).toContain('starts on a Monday')
+    expect(validateSchedule(values('2026-10-12'), TODAY)).toEqual({}) // this week's Monday
+    expect(validateSchedule(values('2026-11-02'), TODAY)).toEqual({}) // a later Monday
+  })
+
+  it('allows past Mondays back to the joining week only', () => {
+    const values = (effectiveFrom: string) => ({ weeklyOffs: ['SATURDAY', 'SUNDAY'] as Weekday[], hoursPerDay: '9', effectiveFrom })
+    // Joined Wednesday 2 Sep: the joining week starts Monday 31 Aug.
+    expect(earliestScheduleStart(TODAY, '2026-09-02')).toBe('2026-08-31')
+    expect(validateSchedule(values('2026-08-31'), TODAY, '2026-09-02')).toEqual({})
+    expect(validateSchedule(values('2026-08-24'), TODAY, '2026-09-02').effectiveFrom)
+      .toContain('the week this employee joined')
+    // No joining date: from this week's Monday.
+    expect(earliestScheduleStart(TODAY, null)).toBe('2026-10-12')
+    expect(validateSchedule(values('2026-10-05'), TODAY, null).effectiveFrom).toContain("this week's Monday")
+    // Joining next month: this week's Monday is still allowed.
+    expect(earliestScheduleStart(TODAY, '2026-11-11')).toBe('2026-10-12')
   })
 
   it('needs a holiday date and name', () => {

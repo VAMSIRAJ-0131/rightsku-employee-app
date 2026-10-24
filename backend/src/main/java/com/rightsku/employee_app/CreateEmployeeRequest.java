@@ -44,7 +44,19 @@ public record CreateEmployeeRequest(
 
     @NotBlank(message = "Temporary password is required")
     @Size(max = 72, message = "Temporary password is too long")
-    String initialPassword
-
+    String initialPassword,
+    /** MALE or FEMALE; optional. */
+    String gender,
+    /** MR, MS or MRS; optional. */
+    String namePrefix,
+    /** The office address for the ID card (an active company address); optional. */
+    Long companyAddressId
 ) {
+
+    /** Without gender, prefix and office (as older apps send it). */
+    public CreateEmployeeRequest(String employeeCode, String firstName, String lastName, String email, String phone,
+                                 String department, String jobTitle, LocalDate joiningDate, String initialPassword) {
+        this(employeeCode, firstName, lastName, email, phone, department, jobTitle, joiningDate, initialPassword,
+                null, null, null);
+    }
 }

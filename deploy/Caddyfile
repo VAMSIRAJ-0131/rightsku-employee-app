@@ -1,0 +1,36 @@
+# HTTPS front door for the RIGHTSKU API. Caddy gets and renews the free
+# Let's Encrypt certificate by itself once DNS points at this server.
+{
+	email {$ACME_EMAIL}
+	# No admin API: restart the container to apply changes.
+	admin off
+}
+
+{$API_DOMAIN:api.rightsku.com} {
+	# The health check and every other actuator URL are for the server only.
+	@actuator path /actuator /actuator/*
+	respond @actuator 404
+
+	# Matches the backend: uploads are at most 10 MB; larger ones (up to
+	# 20 MB) still reach it so the app can say "file too large".
+	request_body {
+		max_size 20MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	reverse_proxy backend:8080
+
+	# Access log to the container log (rotated by Docker). Caddy leaves out
+	# the Authorization header's value, so tokens are never written.
+	log {
+		output stdout
+		format json
+	}
+}

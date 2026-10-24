@@ -2,14 +2,21 @@
 // tapping a week shows its days with hours, description and status.
 import { useMemo, useState } from 'react'
 import { Icon } from '../../components/Icons'
+import Spotlight from '../../components/Spotlight'
 import { EmptyState, List, StatusBadge } from '../../components/ui'
 import type { Timesheet } from '../../data/types'
 import { formatShortDate } from '../../lib/format'
 import { groupByWeek, statusBreakdown, toggleWeek, weekSummaryLine } from '../../lib/timesheetHistory'
 
-export default function WeeklyTimesheetHistory({ items }: { items: Timesheet[] }) {
+export default function WeeklyTimesheetHistory({
+  items, highlightWeek = null,
+}: {
+  items: Timesheet[]
+  /** A week (its Monday) a tapped notification points at: shown open and outlined. */
+  highlightWeek?: string | null
+}) {
   const weeks = useMemo(() => groupByWeek(items), [items])
-  const [open, setOpen] = useState<Set<string>>(() => new Set())
+  const [open, setOpen] = useState<Set<string>>(() => new Set(highlightWeek ? [highlightWeek] : []))
 
   if (weeks.length === 0) {
     return <EmptyState icon="clock" title="No timesheets yet" message="Weeks you submit will appear here with their approval status." />
@@ -22,7 +29,7 @@ export default function WeeklyTimesheetHistory({ items }: { items: Timesheet[] }
         const detailsId = `week-${week.weekStart}`
         const breakdown = statusBreakdown(week)
         return (
-          <div key={week.weekStart}>
+          <Spotlight key={week.weekStart} on={week.weekStart === highlightWeek}>
             <button
               type="button"
               onClick={() => setOpen((o) => toggleWeek(o, week.weekStart))}
@@ -65,7 +72,7 @@ export default function WeeklyTimesheetHistory({ items }: { items: Timesheet[] }
                 ))}
               </ul>
             )}
-          </div>
+          </Spotlight>
         )
       })}
     </List>

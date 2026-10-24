@@ -1,6 +1,7 @@
 // HR: one employee's Comp-Off balance and the history of every change, with
-// who made it and when. Approved Comp-Off requests appear in the history
-// automatically. Changes are made in Leave balance → Change balance → Comp-Off
+// who made it and when. Comp-Off is earned through employee requests that HR
+// approves in Approvals → Comp-Off; each credit appears here as "Earned".
+// Corrections only are made in Leave balance → Change balance → Comp-Off
 // (a reason is always required); version goes up after each change.
 import { useEffect, useState } from 'react'
 import { Button, Card, Notice, Section, Spinner, Tag } from '../../components/ui'
@@ -82,6 +83,8 @@ export default function CompOffSection({
                       </div>
                       <p className="mt-0.5 text-[13px] leading-snug text-ink">
                         {h.source === 'LEAVE_APPROVED' && <span className="mr-1.5 align-middle"><Tag>Leave</Tag></span>}
+                        {h.source === 'COMP_OFF_EARNED' && <span className="mr-1.5 align-middle"><Tag>Earned</Tag></span>}
+                        {h.source === 'MANUAL' && <span className="mr-1.5 align-middle"><Tag>Correction</Tag></span>}
                         {h.reason}
                       </p>
                       <p className="mt-0.5 text-[12px] text-ink-muted">

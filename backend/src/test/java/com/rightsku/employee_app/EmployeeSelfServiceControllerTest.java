@@ -93,7 +93,7 @@ class EmployeeSelfServiceControllerTest {
     void anEmployeeListsTheirOwnNotificationsFromTheToken() throws Exception {
         when(notificationService.mine(110L)).thenReturn(new NotificationResponse.Page(1, List.of(
                 new NotificationResponse(7L, "LEAVE_APPROVED", "Casual leave approved", "Your Casual leave was approved.",
-                        false, Instant.parse("2026-10-22T10:00:00Z")))));
+                        false, Instant.parse("2026-10-22T10:00:00Z"), "LEAVE_REQUEST", "41"))));
 
         mockMvc.perform(get("/api/employee/notifications").header(AUTH, employeeToken))
                 .andExpect(status().isOk())

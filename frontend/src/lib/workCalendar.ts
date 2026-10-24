@@ -5,7 +5,7 @@
 // day. The app shows the same calendar so those dates are disabled up front.
 // The weekly timesheet (Save / Submit for approval) is in timesheetWeek.ts.
 import { apiRequest } from './api'
-import { toIsoDate } from './format'
+import { formatDate, toIsoDate } from './format'
 import type { Status, Timesheet } from '../data/types'
 
 export type DayKind = 'WORKING' | 'WEEKLY_OFF' | 'HOLIDAY'
@@ -98,7 +98,7 @@ export interface DayCell {
   isToday: boolean
 }
 
-function addDays(iso: string, days: number): string {
+export function addDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00`)
   d.setDate(d.getDate() + days)
   return toIsoDate(d)
@@ -109,6 +109,45 @@ export function monthRange(month: string): { from: string; to: string } {
   const [y, m] = month.split('-').map(Number)
   const last = new Date(y, m, 0).getDate()
   return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, '0')}` }
+}
+
+/** "2026-10-19" -> "2026-10". */
+export function monthOf(iso: string): string {
+  return iso.slice(0, 7)
+}
+
+/**
+ * A month as calendar rows, Monday first: each row has 7 cells holding the
+ * date ("YYYY-MM-DD") and its weekday, or null outside the month.
+ */
+export function monthCalendarRows(month: string): ({ iso: string; weekday: Weekday } | null)[][] {
+  const { from, to } = monthRange(month)
+  const rows: ({ iso: string; weekday: Weekday } | null)[][] = []
+  let row: ({ iso: string; weekday: Weekday } | null)[] = []
+  const lead = (new Date(`${from}T00:00:00`).getDay() + 6) % 7 // days before the 1st in its row
+  for (let i = 0; i < lead; i++) row.push(null)
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    row.push({ iso: d, weekday: WEEKDAYS[(new Date(`${d}T00:00:00`).getDay() + 6) % 7].id })
+    if (row.length === 7) {
+      rows.push(row)
+      row = []
+    }
+  }
+  if (row.length) {
+    while (row.length < 7) row.push(null)
+    rows.push(row)
+  }
+  return rows
+}
+
+/** Every Monday of a month ("YYYY-MM"), as "YYYY-MM-DD". */
+export function mondaysIn(month: string): string[] {
+  const { from, to } = monthRange(month)
+  const first = new Date(`${from}T00:00:00`)
+  const offset = (8 - first.getDay()) % 7 // days from the 1st to its first Monday
+  const out: string[] = []
+  for (let d = addDays(from, offset); d <= to; d = addDays(d, 7)) out.push(d)
+  return out
 }
 
 export function shiftMonth(month: string, delta: number): string {
@@ -246,16 +285,50 @@ export interface ScheduleFormValues {
 
 export type ScheduleFormErrors = Partial<Record<keyof ScheduleFormValues, string>>
 
-/** today: "YYYY-MM-DD". A new schedule can start today or later (same rule as the server). */
-export function validateSchedule(values: ScheduleFormValues, today: string): ScheduleFormErrors {
+/** Every employee has exactly two weekly off days (any two of the seven). */
+export const WEEKLY_OFF_COUNT = 2
+
+/** The message under the day buttons until exactly two days are chosen (null once they are). */
+export function weeklyOffHint(chosen: number): string {
+  if (chosen === WEEKLY_OFF_COUNT) return ''
+  if (chosen < WEEKLY_OFF_COUNT) return `Choose exactly two weekly off days (${chosen} of 2 chosen).`
+  return `Choose exactly two weekly off days (${chosen} chosen; remove ${chosen - WEEKLY_OFF_COUNT}).`
+}
+
+/**
+ * The earliest Monday a schedule can start on: the Monday of the joining week,
+ * or this week's Monday when there is no joining date (or it is later).
+ */
+export function earliestScheduleStart(today: string, joiningDate?: string | null): string {
+  const thisMonday = weekStartOf(today)
+  if (!joiningDate) return thisMonday
+  const joiningMonday = weekStartOf(joiningDate)
+  return joiningMonday > thisMonday ? thisMonday : joiningMonday
+}
+
+/**
+ * today: "YYYY-MM-DD". Same rules as the server: a schedule starts on a Monday,
+ * from the joining week on. (The server also refuses a start that would change
+ * submitted timesheets or decided leave, and says which.)
+ */
+export function validateSchedule(values: ScheduleFormValues, today: string, joiningDate?: string | null): ScheduleFormErrors {
   const errors: ScheduleFormErrors = {}
-  if (new Set(values.weeklyOffs).size >= 7) errors.weeklyOffs = 'Leave at least one working day in the week.'
+  if (new Set(values.weeklyOffs).size !== WEEKLY_OFF_COUNT) errors.weeklyOffs = weeklyOffHint(values.weeklyOffs.length)
   const hours = Number(values.hoursPerDay)
   if (!values.hoursPerDay.trim() || !Number.isFinite(hours) || hours <= 0 || hours > 24 || Math.round(hours * 4) !== hours * 4) {
     errors.hoursPerDay = 'Enter hours from 0.25 to 24, in steps of 0.25.'
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(values.effectiveFrom)) errors.effectiveFrom = 'Choose the date this schedule starts.'
-  else if (values.effectiveFrom < today) errors.effectiveFrom = 'Choose today or a later date. Past days keep their schedule.'
+  else if (weekStartOf(values.effectiveFrom) !== values.effectiveFrom) {
+    errors.effectiveFrom = `A schedule starts on a Monday. Choose Monday ${formatDate(weekStartOf(values.effectiveFrom))} or a later Monday.`
+  } else {
+    const earliest = earliestScheduleStart(today, joiningDate)
+    if (values.effectiveFrom < earliest) {
+      errors.effectiveFrom = joiningDate && weekStartOf(joiningDate) === earliest
+        ? `Choose Monday ${formatDate(earliest)} (the week this employee joined) or a later Monday.`
+        : `Choose this week's Monday (${formatDate(earliest)}) or a later Monday.`
+    }
+  }
   return errors
 }
 

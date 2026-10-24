@@ -516,7 +516,8 @@ public class TimesheetService {
                 days.add(new WeekTimesheetResponse.Day(d.date(), d.kind().name(), d.weeklyOff(), d.holidayName(),
                         d.beforeJoining(), d.leave() == null ? null : d.leave().name(), d.scheduledHours(),
                         d.targetHours(), hours, entry == null ? null : entry.getStatus(), editable,
-                        pendingLeave.contains(d.date()), empty == null ? null : empty.name()));
+                        pendingLeave.contains(d.date()), empty == null ? null : empty.name(), d.creditedHours(),
+                        d.leaveType() == null ? null : LeaveType.valueOf(d.leaveType()).label()));
             }
 
             WeekTarget.Totals t = target.totals();
@@ -544,7 +545,8 @@ public class TimesheetService {
                     week == null ? null : week.getSubmittedAt(),
                     days,
                     new WeekTimesheetResponse.Target(t.scheduledHours(), t.holidayHours(), t.leaveHours(),
-                            t.expectedHours(), entered, remaining, check.requiredHours(), check.lopDays()),
+                            t.expectedHours(), entered, remaining, check.requiredHours(), check.lopDays(),
+                            target.totalHours(), target.filledHours(entered), target.unfilledHours(entered)),
                     opensOn, blocked == null, blocked, paidLeaveAvailable);
         }
     }

@@ -1,12 +1,14 @@
 // HR: an employee's working schedule (weekly offs and hours per day), shown
 // on their details page, plus the form to change it from a given date.
 import { useEffect, useState, type FormEvent } from 'react'
+import MondayPicker from '../../components/MondayPicker'
 import { Icon } from '../../components/Icons'
 import { Button, Card, DetailRow, Notice, Section, Spinner, Tag, TopBar } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import { formatDate, toIsoDate } from '../../lib/format'
 import {
-  WEEKDAYS, describeWeeklyOffs, getSchedule, saveSchedule, validateSchedule,
+  WEEKDAYS, WEEKLY_OFF_COUNT, describeWeeklyOffs, earliestScheduleStart, getSchedule, saveSchedule, validateSchedule,
+  weekStartOf, weeklyOffHint,
   type ScheduleData, type ScheduleFormErrors, type ScheduleFormValues, type ScheduleView,
 } from '../../lib/workCalendar'
 
@@ -85,11 +87,12 @@ export function ScheduleSection({
 }
 
 export function ScheduleForm({
-  token, employeeId, employeeName, current, onCancel, onSaved, onError,
+  token, employeeId, employeeName, joiningDate, current, onCancel, onSaved, onError,
 }: {
   token: string
   employeeId: number
   employeeName: string
+  joiningDate?: string | null
   current: ScheduleView
   onCancel: () => void
   onSaved: (data: ScheduleData) => void
@@ -98,8 +101,10 @@ export function ScheduleForm({
   const [values, setValues] = useState<ScheduleFormValues>({
     weeklyOffs: current.weeklyOffs,
     hoursPerDay: String(Number(current.hoursPerDay)),
-    effectiveFrom: toIsoDate(new Date()),
+    // This week's Monday: the change then covers the whole current week.
+    effectiveFrom: weekStartOf(toIsoDate(new Date())),
   })
+  const earliest = earliestScheduleStart(toIsoDate(new Date()), joiningDate)
   const [errors, setErrors] = useState<ScheduleFormErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -120,7 +125,7 @@ export function ScheduleForm({
     e.preventDefault()
     if (saving) return
     setFormError(null)
-    const found = validateSchedule(values, toIsoDate(new Date()))
+    const found = validateSchedule(values, toIsoDate(new Date()), joiningDate)
     setErrors(found)
     if (Object.keys(found).length) return
     setSaving(true)
@@ -140,6 +145,7 @@ export function ScheduleForm({
   }
 
   const workingDays = 7 - values.weeklyOffs.length
+  const offHint = weeklyOffHint(values.weeklyOffs.length)
 
   return (
     <>
@@ -173,10 +179,15 @@ export function ScheduleForm({
                 )
               })}
             </div>
-            <p className="mt-3 text-[13px] text-ink-muted">
-              Selected days are off. {workingDays} working {workingDays === 1 ? 'day' : 'days'} a week.
-            </p>
-            {errors.weeklyOffs && <p className="mt-1.5 text-[12px] text-bad" role="alert">{errors.weeklyOffs}</p>}
+            {errors.weeklyOffs ? (
+              <p className="mt-3 text-[12px] text-bad" role="alert">{errors.weeklyOffs}</p>
+            ) : offHint ? (
+              <p className="mt-3 text-[13px] font-medium text-pending-ink" aria-live="polite">{offHint}</p>
+            ) : (
+              <p className="mt-3 text-[13px] text-ink-muted" aria-live="polite">
+                {describeWeeklyOffs(values.weeklyOffs)} off. {workingDays} working days a week.
+              </p>
+            )}
           </Card>
         </Section>
         <Section title="Hours and start date">
@@ -196,24 +207,28 @@ export function ScheduleForm({
               />
               {errors.hoursPerDay && <span className="mt-1.5 block text-[12px] text-bad">{errors.hoursPerDay}</span>}
             </label>
-            <label className="block" htmlFor="sch-from">
-              <span className="text-[13px] font-medium text-ink-soft">Applies from</span>
-              <input
+            <div>
+              <label className="text-[13px] font-medium text-ink-soft" htmlFor="sch-from">Applies from (a Monday)</label>
+              <MondayPicker
                 id="sch-from"
-                type="date"
-                min={toIsoDate(new Date())}
                 value={values.effectiveFrom}
-                onChange={(e) => setValues((v) => ({ ...v, effectiveFrom: e.target.value }))}
-                className={inputClass(!!errors.effectiveFrom)}
+                min={earliest}
+                error={errors.effectiveFrom}
+                onChange={(monday) => {
+                  setValues((v) => ({ ...v, effectiveFrom: monday }))
+                  setErrors((e) => ({ ...e, effectiveFrom: undefined }))
+                }}
               />
               {errors.effectiveFrom ? (
                 <span className="mt-1.5 block text-[12px] text-bad">{errors.effectiveFrom}</span>
               ) : (
                 <span className="mt-1.5 block text-[12px] leading-relaxed text-ink-muted">
-                  Today or later. Earlier dates keep the schedule they had, and submitted timesheets are not changed.
+                  A Monday, so the whole week follows one schedule. A past Monday is allowed back to the joining
+                  week ({formatDate(earliest)}) if nothing from then on is submitted or approved. Earlier weeks keep
+                  their schedule, and the employee is notified. A later schedule that was already planned is replaced.
                 </span>
               )}
-            </label>
+            </div>
           </Card>
         </Section>
         <Section>
@@ -221,7 +236,7 @@ export function ScheduleForm({
             <Button variant="secondary" onClick={onCancel} disabled={saving}>
               Cancel
             </Button>
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" disabled={saving || values.weeklyOffs.length !== WEEKLY_OFF_COUNT}>
               {saving ? (
                 <>
                   <Spinner /> Saving

@@ -81,6 +81,37 @@ public final class WorkCalendar {
         return new Day(date, kind, weeklyOff, holiday, schedule.hoursPerDay());
     }
 
+    /**
+     * The same calendar with one schedule added, replacing any schedule that
+     * starts on the same date (used to check an HR change before saving it).
+     */
+    public WorkCalendar withSchedule(Schedule schedule) {
+        List<Schedule> next = new ArrayList<>();
+        for (Schedule s : schedules) {
+            if (!s.effectiveFrom().equals(schedule.effectiveFrom())) {
+                next.add(s);
+            }
+        }
+        next.add(schedule);
+        return new WorkCalendar(defaultSchedule, next, holidays);
+    }
+
+    /**
+     * The calendar after HR saves this schedule from its Monday: it applies
+     * from that day on, and schedules that started on or after it no longer
+     * apply (they are replaced).
+     */
+    public WorkCalendar withScheduleFrom(Schedule schedule) {
+        List<Schedule> next = new ArrayList<>();
+        for (Schedule s : schedules) {
+            if (s.effectiveFrom().isBefore(schedule.effectiveFrom())) {
+                next.add(s);
+            }
+        }
+        next.add(schedule);
+        return new WorkCalendar(defaultSchedule, next, holidays);
+    }
+
     /** Every day from start to end, both included. */
     public List<Day> days(LocalDate start, LocalDate end) {
         List<Day> days = new ArrayList<>();

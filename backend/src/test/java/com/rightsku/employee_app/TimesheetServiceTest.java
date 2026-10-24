@@ -211,6 +211,10 @@ class TimesheetServiceTest {
         assertThat(friday.kind()).isEqualTo("HOLIDAY");
         assertThat(friday.holidayName()).isEqualTo("Gandhi Jayanti");
         assertThat(friday.editable()).isFalse();
+        // Nothing entered yet: Total 45, Unfilled is the four working days only (the holiday is excused).
+        assertThat(week.target().totalHours()).isEqualByComparingTo("45");
+        assertThat(week.target().filledHours()).isEqualByComparingTo("0");
+        assertThat(week.target().unfilledHours()).isEqualByComparingTo("36");
     }
 
     @Test
@@ -405,6 +409,12 @@ class TimesheetServiceTest {
 
         assertThat(submitted.status()).isEqualTo("SUBMITTED");
         assertThat(savedEntries).hasSize(4);
+        // What the employee sees: Total stays 45, the holiday adds nothing to Filled and is not owed.
+        assertThat(submitted.target().totalHours()).isEqualByComparingTo("45");
+        assertThat(submitted.target().filledHours()).isEqualByComparingTo("36");
+        assertThat(submitted.target().unfilledHours()).isEqualByComparingTo("0");
+        assertThat(dayOf(submitted, "2026-10-02").creditedHours()).as("holiday shows 0 h").isEqualByComparingTo("0");
+        assertThat(submitted.target().lopDays()).isZero();
     }
 
     @Test

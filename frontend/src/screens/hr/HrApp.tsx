@@ -10,17 +10,19 @@ import type { ApiError } from '../../lib/api'
 import { firstName, formatShortDate, greeting, plural } from '../../lib/format'
 import { listEmployees } from '../../lib/employees'
 import {
-  EMPTY_SUMMARY, getApprovalSummary, listTimesheetWeeks, weekKey, type ApprovalSummary, type HrTimesheetWeek,
+  EMPTY_SUMMARY, NO_COUNTS, getApprovalSummary, pendingTotal as totalWaiting, listTimesheetWeeks, weekKey, type ApprovalSummary, type HrTimesheetWeek,
 } from '../../lib/approvals'
 import { days as dayCount, listLeaveRequests, type LeaveRequestRecord } from '../../lib/leave'
 import ApprovalsScreen, { type ApprovalView } from './ApprovalsScreen'
+import CompanyProfileScreen from './CompanyProfileScreen'
+import { dashboardTarget, type DashboardBox, type QueueStatus } from '../../lib/hrDashboard'
 import EmployeesScreen from './EmployeesScreen'
 import HolidaysScreen from './HolidaysScreen'
 import HrDocumentsScreen from './HrDocumentsScreen'
 import SalarySummaryScreen from './SalarySummaryScreen'
 
 type Tab = 'home' | 'approvals' | 'employees' | 'documents'
-type SubScreen = 'roles' | 'reports' | 'audit' | 'holidays' | 'salary' | null
+type SubScreen = 'roles' | 'reports' | 'audit' | 'holidays' | 'salary' | 'company' | null
 
 export default function HrApp({
   user,
@@ -40,6 +42,11 @@ export default function HrApp({
   const [tab, setTab] = useState<Tab>('home')
   const [sub, setSub] = useState<SubScreen>(null)
   const [approvalView, setApprovalView] = useState<ApprovalView>('timesheets')
+  // Set by a dashboard box: the filter the opened list starts with.
+  const [approvalStatus, setApprovalStatus] = useState<QueueStatus>('PENDING')
+  const [employeeFilter, setEmployeeFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL')
+  // Goes up each time a box opens a list, so the list starts with that box's filter.
+  const [openCount, setOpenCount] = useState(0)
   const { show, toast } = useToast()
   const [countsVersion, setCountsVersion] = useState(0)
   const [counts, setCounts] = useState<{ active: number; inactive: number } | null>(null)
@@ -89,7 +96,14 @@ export default function HrApp({
     return () => controller.abort()
   }, [token, approvalsVersion, handleError])
 
-  const pendingTotal = summary.timesheets.pending + summary.leave.pending
+  const pendingTotal = totalWaiting(summary)
+  const compOffCounts = summary.compOff ?? NO_COUNTS
+  /** Pending / Approved / Rejected boxes that open that approvals tab with that status. */
+  const queueItems = (queue: 'timesheets' | 'leaves' | 'compoff', c: { pending: number; approved: number; rejected: number }) => [
+    { label: 'Pending', value: c.pending, onClick: () => openBox({ kind: 'queue', queue, status: 'PENDING' }) },
+    { label: 'Approved', value: c.approved, onClick: () => openBox({ kind: 'queue', queue, status: 'APPROVED' }) },
+    { label: 'Rejected', value: c.rejected, onClick: () => openBox({ kind: 'queue', queue, status: 'REJECTED' }) },
+  ]
   const activeCount = counts ? counts.active : '–'
   const inactiveCount = counts ? counts.inactive : '–'
 
@@ -109,14 +123,37 @@ export default function HrApp({
   }
   useEffect(() => backStack.push(() => backToHome.current(), 'app'), [])
 
-  function openApprovals(view: ApprovalView) {
+  function openApprovals(view: ApprovalView, status: QueueStatus = 'PENDING') {
     setApprovalView(view)
+    setApprovalStatus(status)
+    setOpenCount((n) => n + 1)
     goTab('approvals')
     setApprovalsVersion((v) => v + 1)
   }
 
+  /** The footer: Employees and Approvals open unfiltered (a dashboard box sets its own filter). */
+  function footerTab(next: Tab) {
+    if (next !== tab) {
+      setEmployeeFilter('ALL')
+      setApprovalStatus('PENDING')
+      setOpenCount((n) => n + 1)
+    }
+    goTab(next)
+  }
+
+  /** A dashboard box: opens the list it counts, already filtered. */
+  function openBox(box: DashboardBox) {
+    const target = dashboardTarget(box)
+    if (target.tab === 'approvals') return openApprovals(target.view, target.status)
+    setEmployeeFilter(target.tab === 'employees' ? target.employeeFilter : 'ALL')
+    setOpenCount((n) => n + 1)
+    goTab(target.tab)
+  }
+
   let screen: ReactNode
-  if (sub === 'salary') {
+  if (sub === 'company') {
+    screen = <CompanyProfileScreen token={token} onBack={() => setSub(null)} onToast={show} onError={handleError} />
+  } else if (sub === 'salary') {
     screen = <SalarySummaryScreen token={token} onBack={() => setSub(null)} onToast={show} onError={handleError} />
   } else if (sub === 'holidays') {
     screen = (
@@ -158,29 +195,20 @@ export default function HrApp({
       <>
         <TopBar title="Reports" subtitle="Summary of saved records" onBack={() => setSub(null)} />
         <Section title="Timesheets (weeks)">
-          <MetricStrip
-            items={[
-              { label: 'Pending', value: summary.timesheets.pending },
-              { label: 'Approved', value: summary.timesheets.approved },
-              { label: 'Rejected', value: summary.timesheets.rejected },
-            ]}
-          />
+          <MetricStrip items={queueItems('timesheets', summary.timesheets)} />
         </Section>
         <Section title="Leave">
-          <MetricStrip
-            items={[
-              { label: 'Pending', value: summary.leave.pending },
-              { label: 'Approved', value: summary.leave.approved },
-              { label: 'Rejected', value: summary.leave.rejected },
-            ]}
-          />
+          <MetricStrip items={queueItems('leaves', summary.leave)} />
+        </Section>
+        <Section title="Comp-Off requests">
+          <MetricStrip items={queueItems('compoff', compOffCounts)} />
         </Section>
         <Section title="People">
           <MetricStrip
             items={[
-              { label: 'Active', value: activeCount },
-              { label: 'Inactive', value: inactiveCount },
-              { label: 'Documents', value: documents.length },
+              { label: 'Active', value: activeCount, onClick: () => openBox({ kind: 'active' }) },
+              { label: 'Inactive', value: inactiveCount, onClick: () => openBox({ kind: 'inactive' }) },
+              { label: 'Documents', value: documents.length, onClick: () => openBox({ kind: 'documents' }) },
             ]}
           />
         </Section>
@@ -265,7 +293,7 @@ export default function HrApp({
               <span className="tnum text-[40px] font-semibold leading-none tracking-tight">{pendingTotal}</span>
               <span className="pb-1 text-[14px] text-mist-200">requests waiting for you</span>
             </div>
-            <div className="mt-4 grid grid-cols-2 divide-x divide-white/10 rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
+            <div className="mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
               <button onClick={() => openApprovals('timesheets')} className="px-3 py-2.5 text-left hover:bg-white/5">
                 <span className="tnum block text-[18px] font-semibold">{summary.timesheets.pending}</span>
                 <span className="text-[12px] text-mist-300">Timesheets</span>
@@ -274,8 +302,12 @@ export default function HrApp({
                 <span className="tnum block text-[18px] font-semibold">{summary.leave.pending}</span>
                 <span className="text-[12px] text-mist-300">Leave</span>
               </button>
+              <button onClick={() => openApprovals('compoff')} className="px-3 py-2.5 text-left hover:bg-white/5">
+                <span className="tnum block text-[18px] font-semibold">{compOffCounts.pending}</span>
+                <span className="text-[12px] text-mist-300">Comp-Off</span>
+              </button>
             </div>
-            <Button variant="onDark" size="lg" onClick={() => openApprovals(summary.timesheets.pending || !summary.leave.pending ? 'timesheets' : 'leaves')} className="mt-4 w-full">
+            <Button variant="onDark" size="lg" onClick={() => openApprovals(summary.timesheets.pending ? 'timesheets' : summary.leave.pending ? 'leaves' : compOffCounts.pending ? 'compoff' : 'timesheets')} className="mt-4 w-full">
               <Icon name="check" className="h-[18px] w-[18px]" /> Review approvals
             </Button>
           </div>
@@ -284,9 +316,9 @@ export default function HrApp({
         <section className="px-5 pt-3">
           <MetricStrip
             items={[
-              { label: 'Active staff', value: activeCount },
-              { label: 'Inactive', value: inactiveCount },
-              { label: 'Documents', value: documents.length },
+              { label: 'Active staff', value: activeCount, onClick: () => openBox({ kind: 'active' }) },
+              { label: 'Inactive', value: inactiveCount, onClick: () => openBox({ kind: 'inactive' }) },
+              { label: 'Documents', value: documents.length, onClick: () => openBox({ kind: 'documents' }) },
             ]}
           />
         </section>
@@ -320,6 +352,7 @@ export default function HrApp({
           <List>
             <AdminRow icon="users" title="Employees" meta={`${activeCount} active`} onClick={() => goTab('employees')} />
             <AdminRow icon="upload" title="Documents" meta="Upload and assign" onClick={() => goTab('documents')} />
+            <AdminRow icon="briefcase" title="Company profile" meta="Name, phone, offices" onClick={() => setSub('company')} />
             <AdminRow icon="wallet" title="Salary summary" meta="Monthly payroll days" onClick={() => setSub('salary')} />
             <AdminRow icon="calendar" title="Holiday calendar" meta="Company holidays" onClick={() => setSub('holidays')} />
             <AdminRow icon="shield" title="Roles and access" meta={`${employees.length} accounts`} onClick={() => setSub('roles')} />
@@ -334,7 +367,9 @@ export default function HrApp({
     screen = (
       <ApprovalsScreen
         token={token}
+        key={`approvals-${openCount}`}
         view={approvalView}
+        initialStatus={approvalStatus}
         onViewChange={setApprovalView}
         summary={summary}
         onChanged={() => setApprovalsVersion((v) => v + 1)}
@@ -345,7 +380,9 @@ export default function HrApp({
   } else if (tab === 'employees') {
     screen = (
       <EmployeesScreen
+        key={`employees-${openCount}`}
         token={token}
+        initialStatus={employeeFilter}
         onToast={show}
         onSessionExpired={onSessionExpired}
         onChanged={() => setCountsVersion((v) => v + 1)}
@@ -376,7 +413,7 @@ export default function HrApp({
           { id: 'documents', label: 'Documents', icon: 'folder' },
         ]}
         active={tab}
-        onChange={goTab}
+        onChange={footerTab}
       />
       {toast}
     </Page>
@@ -385,16 +422,35 @@ export default function HrApp({
 
 /* ---------- Pieces used above ---------- */
 
-function MetricStrip({ items }: { items: { label: string; value: number | string }[] }) {
+/** Counts in a row. A box with onClick is a button over its whole area, opening the list it counts. */
+function MetricStrip({ items }: { items: { label: string; value: number | string; onClick?: () => void }[] }) {
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <div className="grid divide-x divide-line" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
-        {items.map((m) => (
-          <div key={m.label} className="px-3.5 py-3">
-            <p className="tnum text-[20px] font-semibold tracking-tight text-ink">{m.value}</p>
-            <p className="truncate text-[12px] text-ink-muted">{m.label}</p>
-          </div>
-        ))}
+        {items.map((m) => {
+          const body = (
+            <>
+              <p className="tnum text-[20px] font-semibold tracking-tight text-ink">{m.value}</p>
+              <p className="flex items-center gap-0.5 truncate text-[12px] text-ink-muted">
+                {m.label}
+                {m.onClick && <Icon name="chevronRight" className="h-3.5 w-3.5 shrink-0 text-ink-muted/70" />}
+              </p>
+            </>
+          )
+          return m.onClick ? (
+            <button
+              key={m.label}
+              type="button"
+              onClick={m.onClick}
+              aria-label={`${m.label}: ${m.value}. Open the list`}
+              className="block w-full px-3.5 py-3 text-left hover:bg-mist-50 active:bg-mist-100"
+            >
+              {body}
+            </button>
+          ) : (
+            <div key={m.label} className="px-3.5 py-3">{body}</div>
+          )
+        })}
       </div>
     </Card>
   )

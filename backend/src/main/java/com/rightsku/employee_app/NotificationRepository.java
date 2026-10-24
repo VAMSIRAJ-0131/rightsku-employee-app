@@ -11,15 +11,21 @@ import org.springframework.data.repository.query.Param;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
-    /** The newest notifications of one account. */
-    List<Notification> findTop50ByUserIdOrderByCreatedAtDescIdDesc(Long userId);
+    /** The newest notifications of one account that it has not cleared. */
+    List<Notification> findTop50ByUserIdAndClearedAtIsNullOrderByCreatedAtDescIdDesc(Long userId);
 
-    long countByUserIdAndReadAtIsNull(Long userId);
+    long countByUserIdAndReadAtIsNullAndClearedAtIsNull(Long userId);
 
     /** Looked up together with the owner, so one account can never reach another's notification. */
     Optional<Notification> findByIdAndUserId(Long id, Long userId);
 
     @Modifying
-    @Query("update Notification n set n.readAt = :now where n.userId = :userId and n.readAt is null")
+    @Query("update Notification n set n.readAt = :now where n.userId = :userId and n.readAt is null and n.clearedAt is null")
     int markAllRead(@Param("userId") Long userId, @Param("now") Instant now);
+
+    /** Clears every notification of one account (also marks them read). Only notifications change. */
+    @Modifying
+    @Query("update Notification n set n.clearedAt = :now, n.readAt = coalesce(n.readAt, :now) "
+            + "where n.userId = :userId and n.clearedAt is null")
+    int clearAll(@Param("userId") Long userId, @Param("now") Instant now);
 }

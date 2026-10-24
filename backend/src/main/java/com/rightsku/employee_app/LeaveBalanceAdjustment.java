@@ -15,6 +15,7 @@ public class LeaveBalanceAdjustment {
 
     public static final String SOURCE_MANUAL = "MANUAL";
     public static final String SOURCE_LEAVE_APPROVED = "LEAVE_APPROVED";
+    public static final String SOURCE_COMP_OFF_EARNED = "COMP_OFF_EARNED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -47,6 +48,10 @@ public class LeaveBalanceAdjustment {
     @Column(name = "request_key", length = 64, updatable = false)
     private String requestKey;
 
+    /** Set for a credit from an approved Comp-Off request (V14): one request credits only once. */
+    @Column(name = "comp_off_request_id", updatable = false)
+    private Long compOffRequestId;
+
     @Column(name = "created_by", updatable = false)
     private Long createdBy;
 
@@ -71,6 +76,15 @@ public class LeaveBalanceAdjustment {
         LeaveBalanceAdjustment a = base(employeeId, type, before, days.negate(), reason, reviewerUserId);
         a.source = SOURCE_LEAVE_APPROVED;
         a.leaveRequestId = leaveRequestId;
+        return a;
+    }
+
+    /** The days credited when HR approved one Comp-Off request. */
+    static LeaveBalanceAdjustment earned(Long employeeId, BigDecimal before, BigDecimal days,
+                                         String reason, Long compOffRequestId, Long reviewerUserId) {
+        LeaveBalanceAdjustment a = base(employeeId, LeaveType.COMP_OFF, before, days, reason, reviewerUserId);
+        a.source = SOURCE_COMP_OFF_EARNED;
+        a.compOffRequestId = compOffRequestId;
         return a;
     }
 
@@ -126,6 +140,10 @@ public class LeaveBalanceAdjustment {
 
     public Long getLeaveRequestId() {
         return leaveRequestId;
+    }
+
+    public Long getCompOffRequestId() {
+        return compOffRequestId;
     }
 
     public String getRequestKey() {

@@ -32,8 +32,18 @@ public record UpdateEmployeeRequest(
 
     @Size(max = 100, message = "Job title must be at most 100 characters")
     String jobTitle,
-
-    LocalDate joiningDate
-
+    LocalDate joiningDate,
+    /** MALE or FEMALE; optional. */
+    String gender,
+    /** MR, MS or MRS; optional. */
+    String namePrefix,
+    /** The office address for the ID card (an active company address, or the one already set); optional. */
+    Long companyAddressId
 ) {
+
+    /** Without gender, prefix and office (as older apps send it). */
+    public UpdateEmployeeRequest(String firstName, String lastName, String email, String phone,
+                                 String department, String jobTitle, LocalDate joiningDate) {
+        this(firstName, lastName, email, phone, department, jobTitle, joiningDate, null, null, null);
+    }
 }

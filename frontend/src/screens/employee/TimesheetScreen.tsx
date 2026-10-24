@@ -8,12 +8,12 @@
 // The server works out the week's target and enforces every rule.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icons'
-import { Button, Card, Notice, ProgressBar, Section, Spinner, StatusBadge, TopBar, useBackHandler } from '../../components/ui'
+import { Button, Card, Notice, Section, Spinner, StatusBadge, TopBar, useBackHandler } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import { formatShortDate, monthLabel, toIsoDate } from '../../lib/format'
 import { MAX_DAYS_BACK, MAX_HOURS_PER_DAY, MIN_HOURS_PER_DAY, weekStartOf } from '../../lib/workCalendar'
 import {
-  CONFIRM_SUBMIT_MESSAGE, createWeekActions, formatDayLong, formatHours, getMyWeek, saveWeekDraft, startingHours,
+  CONFIRM_SUBMIT_MESSAGE, approvedLeaveLabel, createWeekActions, holidayLabel, creditedDay, formatDayLong, formatHours, getMyWeek, saveWeekDraft, startingHours,
   submitMyWeek, weekTotals,
   type EmptyMeaning, type WeekActionResult, type WeekData, type WeekDayData, type WeekFormErrors, type WeekTotals,
 } from '../../lib/timesheetWeek'
@@ -34,6 +34,7 @@ function shiftDays(iso: string, days: number): string {
 
 export default function TimesheetScreen({
   token,
+  initialWeekStart,
   historyWeeks,
   history,
   onBack,
@@ -41,6 +42,8 @@ export default function TimesheetScreen({
   onError,
 }: {
   token: string
+  /** The Monday of the week to open on (from the home card); this week when not given. */
+  initialWeekStart?: string
   /** Number of weeks in the history list below. */
   historyWeeks: number
   /** The history list, rendered by the parent so it looks the same everywhere. */
@@ -51,7 +54,7 @@ export default function TimesheetScreen({
   onError: (error: ApiError) => ApiError
 }) {
   const todayLocal = toIsoDate(new Date())
-  const [weekStart, setWeekStart] = useState(() => weekStartOf(todayLocal))
+  const [weekStart, setWeekStart] = useState(() => initialWeekStart ?? weekStartOf(todayLocal))
   const [week, setWeek] = useState<WeekData | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -326,22 +329,23 @@ export default function TimesheetScreen({
 /* ---------- Expected, entered and remaining hours ---------- */
 
 function TargetCard({ totals }: { totals: WeekTotals }) {
-  const done = totals.remaining === 0 && totals.over === 0 && totals.total > 0
+  const done = totals.unfilled === 0 && totals.totalHours > 0
   return (
     <Section>
       <Card className="p-4">
-        <dl className="grid grid-cols-3 gap-2 text-center">
-          <Figure label="Required" value={totals.total} />
-          <Figure label="Hours accounted for" value={totals.counted} />
-          <Figure
-            label={totals.over > 0 ? 'Too many hours' : 'Unfilled hours'}
-            value={totals.over > 0 ? totals.over : totals.remaining}
-            tone={done ? 'ok' : totals.remaining > 0 || totals.over > 0 ? 'warn' : 'plain'}
-          />
+        <dl className="grid grid-cols-3 divide-x divide-line text-center">
+          <Figure label="Total hours" value={totals.totalHours} />
+          <Figure label="Filled hours" value={totals.filled} />
+          <Figure label="Unfilled hours" value={totals.unfilled} tone={done ? 'ok' : totals.unfilled > 0 ? 'warn' : 'plain'} />
         </dl>
-        <div className="mt-3">
-          <ProgressBar value={totals.counted} max={Math.max(totals.total, totals.counted)} />
+        <div className="mt-3.5">
+          <WeekProgress percent={totals.progress} filled={totals.filled} total={totals.totalHours} />
         </div>
+        {totals.over > 0 && (
+          <p className="mt-2.5 text-[12px] font-medium text-warn">
+            {formatHours(totals.over)} h more than this week needs. Check the hours entered.
+          </p>
+        )}
         <p className="mt-2.5 text-[12px] leading-relaxed text-ink-muted">Days with no hours and no paid leave will count as LOP.</p>
       </Card>
     </Section>
@@ -351,9 +355,30 @@ function TargetCard({ totals }: { totals: WeekTotals }) {
 function Figure({ label, value, tone = 'plain' }: { label: string; value: number; tone?: 'plain' | 'ok' | 'warn' }) {
   const color = tone === 'ok' ? 'text-ok' : tone === 'warn' ? 'text-warn' : 'text-ink'
   return (
-    <div>
-      <dt className="text-[12px] text-ink-muted">{label}</dt>
-      <dd className={`tnum mt-0.5 text-[20px] font-semibold ${color}`}>{formatHours(value)} h</dd>
+    <div className="flex min-w-0 flex-col items-center px-1">
+      <dt className="text-[12px] leading-tight text-ink-muted">{label}</dt>
+      <dd className={`tnum mt-1 text-[20px] font-semibold leading-none ${color}`}>{formatHours(value)} h</dd>
+    </div>
+  )
+}
+
+/** The blue bar under the summary: Filled / Total (0 of 45 empty, 22.5 half, 45 full; never past full). */
+function WeekProgress({ percent, filled, total }: { percent: number; filled: number; total: number }) {
+  return (
+    <div
+      className="h-2 w-full overflow-hidden rounded-full bg-mist-100"
+      role="progressbar"
+      aria-label="Filled hours"
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={filled}
+      aria-valuetext={`${formatHours(filled)} of ${formatHours(total)} hours filled`}
+    >
+      <div
+        data-testid="week-progress-fill"
+        className="h-full rounded-full bg-gradient-to-r from-[#1E88D2] to-navy-700 transition-[width] duration-300"
+        style={{ width: `${percent}%` }}
+      />
     </div>
   )
 }
@@ -362,12 +387,12 @@ function Figure({ label, value, tone = 'plain' }: { label: string; value: number
 
 function noteFor(day: WeekDayData): string {
   if (day.beforeJoining) return 'Before joining'
-  if (day.kind === 'HOLIDAY') return day.holidayName ?? 'Holiday'
+  if (day.kind === 'HOLIDAY') return holidayLabel(day)
   if (day.kind === 'WEEKLY_OFF') return 'Weekly off'
-  if (day.leave === 'FULL_DAY') return 'Approved leave · counts toward the week'
+  if (day.leave === 'FULL_DAY') return approvedLeaveLabel(day)
   if (day.leave === 'HALF_DAY') {
     const leaveHours = Number(day.scheduledHours) - Number(day.targetHours)
-    return `Half-day leave (approved) · ${formatHours(leaveHours)} h leave + ${formatHours(day.targetHours)} h to work`
+    return `Half day ${approvedLeaveLabel(day).toLowerCase()} · ${formatHours(leaveHours)} h leave + ${formatHours(day.targetHours)} h to work`
   }
   return ''
 }
@@ -402,9 +427,9 @@ function DayRow({
   const emptyNote = empty ? EMPTY_NOTE[empty] : null
   const note = noteFor(day) || emptyNote?.text || ''
   const status = day.entryStatus ? STATUS_LABEL[day.entryStatus] ?? 'Pending' : null
-  // A full day of approved leave shows its hours (9 on a normal day): they count toward the week.
-  const leaveDay = day.leave === 'FULL_DAY' && !status
-  const greyed = !day.editable && !status && !leaveDay
+  // Weekly offs, holidays and approved full-day leave show their credited hours: nothing to type.
+  const credit = creditedDay(day)
+  const greyed = !day.editable && !status && !credit
   return (
     <div>
       <div className="flex items-stretch gap-2">
@@ -421,15 +446,26 @@ function DayRow({
                 {note}
               </span>
             )}
+            {/* Under the date, so the date is never cut short on narrow phones. */}
+            {status && (
+              <span className="mt-1 block">
+                <StatusBadge status={status} />
+              </span>
+            )}
           </span>
-          {status && <StatusBadge status={status} />}
         </label>
-        {leaveDay ? (
+        {credit ? (
           <div
-            className="tnum grid h-12 w-[5.5rem] shrink-0 place-items-center rounded-xl border border-approved/50 bg-approved-soft text-[15px] font-medium text-approved-ink"
-            aria-label={`${label}, ${formatHours(day.scheduledHours)} hours of approved leave`}
+            className={`tnum grid h-12 w-[5.5rem] shrink-0 place-items-center rounded-xl border text-[15px] font-medium ${
+              credit.reason === 'leave'
+                ? 'border-approved/50 bg-approved-soft text-approved-ink'
+                : 'border-line bg-mist-50 text-ink-muted'
+            }`}
+            aria-label={`${label}, ${formatHours(credit.hours)} hours (${
+              credit.reason === 'weekly-off' ? 'weekly off' : credit.reason === 'holiday' ? holidayLabel(day) : approvedLeaveLabel(day)
+            })`}
           >
-            {formatHours(day.scheduledHours)}
+            {formatHours(credit.hours)} h
           </div>
         ) : status ? (
           <div
@@ -452,7 +488,7 @@ function DayRow({
             placeholder="–"
             aria-label={`Hours for ${label}${note ? ` (${note.toLowerCase()})` : ''}`}
             aria-invalid={!!error}
-            className={`tnum h-12 w-[5.5rem] shrink-0 rounded-xl border px-3 text-[15px] outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 disabled:cursor-not-allowed disabled:bg-mist-50 disabled:text-ink-muted ${
+            className={`tnum h-12 w-[5.5rem] shrink-0 rounded-xl border px-3 text-center text-[15px] outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 disabled:cursor-not-allowed disabled:bg-mist-50 disabled:text-ink-muted ${
               error ? 'border-bad/60 bg-white text-ink' : 'border-line-strong bg-white text-ink'
             }`}
           />
