@@ -325,3 +325,13 @@ export function changeHoliday(token: string, id: number, values: HolidayFormValu
 export function removeHoliday(token: string, id: number) {
   return apiRequest<null>(`/api/hr/holidays/${id}`, { token, method: 'DELETE' })
 }
+
+/** Employees: the published company holidays of one year (read only; HR manages them). */
+export function listMyHolidays(token: string, year: number, signal?: AbortSignal) {
+  return apiRequest<HolidayRecord[]>(`/api/employee/holidays?year=${year}`, { token, signal })
+}
+
+/** Holidays from today on (dates are "YYYY-MM-DD", so text order is date order). */
+export function upcomingHolidays(holidays: HolidayRecord[], todayIso: string): HolidayRecord[] {
+  return holidays.filter((h) => h.date >= todayIso).sort((a, b) => a.date.localeCompare(b.date))
+}

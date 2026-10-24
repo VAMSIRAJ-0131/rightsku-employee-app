@@ -180,8 +180,8 @@ export default function DocumentUploadForm(props: Props) {
                       type="button"
                       aria-pressed={values.type === t.type}
                       onClick={() => chooseType(t.type)}
-                      className={`min-h-11 rounded-lg px-3 py-2 text-left text-[14px] font-medium ring-1 ring-inset ${
-                        values.type === t.type ? 'bg-navy-900 text-white ring-navy-900' : 'bg-white text-ink ring-line-strong hover:bg-mist-50'
+                      className={`press min-h-11 rounded-xl px-3 py-2 text-left text-[14px] font-medium transition-transform duration-150 ${
+                        values.type === t.type ? 'gloss-navy text-white' : 'gloss-light border border-line-strong text-ink'
                       }`}
                     >
                       {t.label}
@@ -239,7 +239,7 @@ export default function DocumentUploadForm(props: Props) {
               />
               <label
                 htmlFor="doc-file"
-                className={`flex min-h-14 cursor-pointer items-center gap-3 rounded-lg border border-dashed px-4 py-3 hover:bg-mist-50 ${
+                className={`flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border border-dashed px-4 py-3 hover:bg-mist-50 ${
                   errors.file ? 'border-bad/60' : 'border-line-strong'
                 }`}
               >
@@ -355,7 +355,7 @@ function EmployeePicker({
 }
 
 function inputClass(invalid: boolean) {
-  return `mt-1.5 h-12 w-full rounded-lg border bg-white px-4 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
+  return `mt-1.5 h-12 w-full rounded-xl border bg-white px-4 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
     invalid ? 'border-bad/50' : 'border-line-strong'
   }`
 }

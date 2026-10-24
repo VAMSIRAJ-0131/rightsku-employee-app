@@ -27,7 +27,21 @@ export interface WeekDayData {
   /** PENDING / APPROVED / REJECTED once the day is submitted. */
   entryStatus: string | null
   editable: boolean
+  /** A leave request for this day is waiting for HR. */
+  pendingLeave?: boolean
+  /** For a working day left at 0 hours: LOP, PENDING_LEAVE or NEEDS_LEAVE (server's view of the saved week). */
+  emptyMeaning?: EmptyMeaning | null
 }
+
+/**
+ * What a working day without hours means (the same rule as the server's WeekSubmission).
+ * A blank box is UNFILLED (still to be entered; blocks submitting), unless its leave is
+ * waiting for HR. A box with 0 ("did not work") is one of:
+ * PENDING_LEAVE: its leave is waiting for HR, so it leaves the week's total and is not LOP;
+ * LOP: no paid leave is left, so it is Loss of Pay and leaves the week's total;
+ * NEEDS_LEAVE: paid leave is still available, so apply for leave or enter hours before submitting.
+ */
+export type EmptyMeaning = 'LOP' | 'PENDING_LEAVE' | 'NEEDS_LEAVE' | 'UNFILLED'
 
 export interface WeekTargetData {
   scheduledHours: number | string
@@ -36,6 +50,9 @@ export interface WeekTargetData {
   expectedHours: number | string
   enteredHours: number | string
   remainingHours: number | string
+  /** What must be entered exactly: expected hours minus empty LOP and pending-leave days. */
+  requiredHours?: number | string
+  lopDays?: number
 }
 
 export interface WeekData {
@@ -52,6 +69,8 @@ export interface WeekData {
   submitOpensOn: string | null
   canSubmit: boolean
   submitBlockedReason: string | null
+  /** Whether at least one day of paid leave is still available (decides what an empty day means). */
+  paidLeaveAvailable?: boolean
 }
 
 export interface WeekBody {
@@ -86,6 +105,13 @@ export function formatHours(value: number | string | null | undefined): string {
 const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
+/** "2026-10-16" -> "Fri 16 Oct" (the same wording as the server's day lists). */
+export function formatDayShort(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return iso
+  return `${SHORT_DAYS[d.getDay()]} ${d.getDate()} ${SHORT_MONTHS[d.getMonth()]}`
+}
+
 /** "2026-10-16" -> "Fri 16 Oct 2026" (the same wording as the server). */
 export function formatDayLong(iso: string): string {
   const d = new Date(`${iso}T00:00:00`)
@@ -112,26 +138,103 @@ export function startingHours(week: WeekData): Record<string, string> {
 }
 
 export interface WeekTotals {
+  /** The week's own target: scheduled hours minus holidays and approved leave. */
   expected: number
-  /** Hours worked only: submitted days (not rejected) plus what is typed now. Leave is never added. */
+  /** What must be entered exactly: expected minus empty LOP and pending-leave days. */
+  required: number
+  /** Hours worked only: submitted days (not rejected) plus what is typed now. */
   entered: number
   remaining: number
+  /** Hours of approved leave this week: they count toward the week's hours. */
+  leave: number
+  /** Everything the week must add up to: required (worked) plus approved leave. 45 for a normal week. */
+  total: number
+  /** What counts so far: hours worked plus approved leave. */
+  counted: number
+  /** Hours counted above the total. */
+  over: number
+  /** What each empty editable working day currently means, by date. */
+  empty: Record<string, EmptyMeaning>
+  lopDays: number
 }
 
-/** Live totals while the employee types, using the server's expected hours. */
+/** What an editable working day without hours means right now: blank, or 0 typed. */
+export function emptyMeaningOf(week: WeekData, day: WeekDayData, zeroTyped = true): EmptyMeaning {
+  if (day.pendingLeave) return 'PENDING_LEAVE'
+  if (!zeroTyped) return 'UNFILLED'
+  // An older server does not say; treat it as "paid leave available" so nothing turns into LOP silently.
+  return week.paidLeaveAvailable === false ? 'LOP' : 'NEEDS_LEAVE'
+}
+
+/** Live totals while the employee types (the same rule as the server's WeekSubmission). */
 export function weekTotals(week: WeekData, hours: Record<string, string>): WeekTotals {
   let entered = 0
+  const expected = round(num(week.target.expectedHours))
+  let required = expected
+  const empty: Record<string, EmptyMeaning> = {}
   for (const day of week.days) {
     if (day.editable) {
-      const value = Number((hours[day.date] ?? '').trim())
-      if ((hours[day.date] ?? '').trim() && Number.isFinite(value) && value > 0) entered += value
+      const text = (hours[day.date] ?? '').trim()
+      const value = Number(text)
+      if (text && Number.isFinite(value) && value > 0) {
+        entered += value
+      } else if (!text || value === 0) {
+        const meaning = emptyMeaningOf(week, day, !!text)
+        empty[day.date] = meaning
+        if (meaning === 'LOP' || meaning === 'PENDING_LEAVE') required -= num(day.targetHours)
+      }
     } else if (day.entryStatus && day.entryStatus !== 'REJECTED') {
       entered += num(day.hours)
     }
   }
-  const expected = round(num(week.target.expectedHours))
   entered = round(entered)
-  return { expected, entered, remaining: round(Math.max(0, expected - entered)) }
+  required = round(required)
+  const leave = round(num(week.target.leaveHours))
+  return {
+    expected,
+    required,
+    entered,
+    leave,
+    total: round(required + leave),
+    counted: round(entered + leave),
+    remaining: round(Math.max(0, required - entered)),
+    over: round(Math.max(0, entered - required)),
+    empty,
+    lopDays: Object.values(empty).filter((m) => m === 'LOP').length,
+  }
+}
+
+/** Why the week can't be submitted yet because of its hours (the server's wording), or null. */
+export function hoursProblem(totals: WeekTotals): string | null {
+  const needLeave = Object.entries(totals.empty).filter(([, m]) => m === 'NEEDS_LEAVE').map(([d]) => d).sort()
+  const split = totals.leave > 0
+    ? ` (${formatHours(totals.leave)} h approved leave + ${formatHours(totals.required)} h worked)`
+    : ''
+  if (totals.entered === 0) {
+    if (totals.required <= 0) return 'Enter hours for at least one working day.'
+    return totals.leave > 0
+      ? `Enter this week's hours worked: ${formatHours(totals.total)} h less ${formatHours(totals.leave)} h approved leave leaves ${
+        formatHours(totals.required)} h.`
+      : `Enter this week's ${formatHours(totals.required)} hours.`
+  }
+  if (needLeave.length > 0) {
+    const days = needLeave.map(formatDayShort).join(', ')
+    return `${days} ${needLeave.length === 1 ? 'has' : 'have'} no hours. You still have paid leave, so apply for leave for ${
+      needLeave.length === 1 ? 'that day' : 'those days'} or enter the hours worked.`
+  }
+  const unfilled = Object.entries(totals.empty).filter(([, m]) => m === 'UNFILLED').map(([d]) => d).sort()
+  if (unfilled.length > 0) {
+    return `${unfilled.map(formatDayShort).join(', ')} ${unfilled.length === 1 ? 'is' : 'are'
+    } not filled in. Enter the hours worked, or 0 for a day you did not work.`
+  }
+  if (totals.remaining > 0) {
+    return `Enter ${formatHours(totals.remaining)} more hours: this week needs exactly ${formatHours(totals.total)} hours${split}.`
+  }
+  if (totals.over > 0) {
+    return `This week needs exactly ${formatHours(totals.total)} hours${split}, but ${formatHours(totals.counted)} are ${
+      totals.leave > 0 ? 'counted' : 'entered'}. Remove ${formatHours(totals.over)} hours.`
+  }
+  return null
 }
 
 export interface WeekFormErrors {
@@ -150,7 +253,7 @@ export function hasWeekErrors(errors: WeekFormErrors): boolean {
  * Checks the week before Save or Submit and builds the request.
  * Save: each filled box must be 1-9 hours in quarter hours; empty boxes and
  * no description are fine. Submit: also needs the description, the week's
- * last working day reached and at least the week's target.
+ * last working day reached and exactly the week's required hours (see weekTotals).
  */
 export function prepareWeek(
   week: WeekData, hours: Record<string, string>, description: string, mode: 'draft' | 'submit',
@@ -162,6 +265,10 @@ export function prepareWeek(
     const value = (hours[day.date] ?? '').trim()
     if (!value) {
       days.push({ date: day.date, hours: null })
+      continue
+    }
+    if (Number(value) === 0) {
+      days.push({ date: day.date, hours: 0 }) // "did not work": LOP or leave (see weekTotals)
       continue
     }
     const problem = checkDayHours(value)
@@ -182,8 +289,9 @@ export function prepareWeek(
     if (!week.submitOpensOn) errors.form = 'This week has no working days to submit.'
     else if (week.today < week.submitOpensOn) {
       errors.form = `You can submit this week from ${formatDayLong(week.submitOpensOn)}, its last working day. Save it as a draft until then.`
-    } else if (totals.remaining > 0) {
-      errors.form = `Enter ${formatHours(totals.remaining)} more hours to reach this week's ${formatHours(totals.expected)} hours.`
+    } else {
+      const problem = hoursProblem(totals)
+      if (problem) errors.form = problem
     }
   }
   return { body: { weekStart: week.weekStart, description: text, days }, errors }

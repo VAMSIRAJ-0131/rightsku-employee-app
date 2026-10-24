@@ -39,7 +39,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * is used and no accounts are created.
  */
 @WebMvcTest(
-        controllers = EmployeeController.class,
+        controllers = {EmployeeController.class, EmployeeProfileController.class},
         properties = {
                 "app.jwt.secret=" + JwtServiceTest.TEST_SECRET,
                 "HR_ADMIN_BOOTSTRAP_ENABLED=false"
@@ -63,6 +63,9 @@ class EmployeeControllerTest {
 
     @MockitoBean
     private EmployeeService employeeService;
+
+    @MockitoBean
+    private EmployeePhotoService photoService;
 
     @MockitoBean
     private AppUserRepository appUserRepository;
@@ -239,5 +242,94 @@ class EmployeeControllerTest {
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
         verify(employeeService).setActive(5L, false, 1L);
         verify(employeeService).setActive(5L, true, 1L);
+    }
+
+    /* ---------- HR resets a forgotten password ---------- */
+
+    private static final String RESET_BODY =
+            "{\"temporaryPassword\":\"Test-Only-Passw0rd!\",\"confirmPassword\":\"Test-Only-Passw0rd!\"}";
+
+    @Test
+    void hrResetsAPasswordAndNothingIsSentBack() throws Exception {
+        mockMvc.perform(withToken(post(BASE + "/5/reset-password"), hrToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(RESET_BODY))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+        verify(employeeService).resetPassword(eq(5L), any(), eq(1L));
+    }
+
+    @Test
+    void onlyHrCanResetPasswords() throws Exception {
+        mockMvc.perform(post(BASE + "/5/reset-password").contentType(MediaType.APPLICATION_JSON).content(RESET_BODY))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(withToken(post(BASE + "/5/reset-password"), employeeToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(RESET_BODY))
+                .andExpect(status().isForbidden());
+        verify(employeeService, never()).resetPassword(anyLong(), any(), any());
+    }
+
+    @Test
+    void aResetRefusalNamesTheFieldAndInactiveIs409() throws Exception {
+        org.mockito.Mockito.doThrow(ApiException.invalid("temporaryPassword", "Password must be at least 12 characters."))
+                .when(employeeService).resetPassword(eq(5L), any(), any());
+        org.mockito.Mockito.doThrow(ApiException.conflict(null, "This employee is inactive."))
+                .when(employeeService).resetPassword(eq(6L), any(), any());
+
+        mockMvc.perform(withToken(post(BASE + "/5/reset-password"), hrToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(RESET_BODY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields.temporaryPassword").value("Password must be at least 12 characters."));
+        mockMvc.perform(withToken(post(BASE + "/6/reset-password"), hrToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(RESET_BODY))
+                .andExpect(status().isConflict());
+        mockMvc.perform(withToken(post(BASE + "/5/reset-password"), hrToken)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"temporaryPassword\":\"\",\"confirmPassword\":\"\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    /* ---------- Own profile (employee app) ---------- */
+
+    @Test
+    void employeeReadsTheirOwnProfileFromTheToken() throws Exception {
+        when(employeeService.mine(2L)).thenReturn(sample(5L, "ACTIVE"));
+
+        mockMvc.perform(withToken(get("/api/employee/profile"), employeeToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.firstName").value("Ravi"))
+                .andExpect(jsonPath("$.lastName").value("Kumar"))
+                .andExpect(jsonPath("$.department").value("Engineering"))
+                .andExpect(content().string(not(containsString("password"))));
+        verify(employeeService).mine(2L);
+    }
+
+    @Test
+    void ownProfileNeedsAnEmployeeToken() throws Exception {
+        mockMvc.perform(get("/api/employee/profile")).andExpect(status().isUnauthorized());
+        mockMvc.perform(withToken(get("/api/employee/profile"), hrToken)).andExpect(status().isForbidden());
+        verify(employeeService, never()).mine(anyLong());
+    }
+
+    @Test
+    void employeeViewsOnlyTheirOwnPhotoFromTheToken() throws Exception {
+        when(photoService.mine(2L)).thenReturn(new EmployeePhotoService.Photo("image/jpeg", DocumentFileRulesTest.JPEG));
+
+        mockMvc.perform(withToken(get("/api/employee/profile/photo"), employeeToken))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "image/jpeg"))
+                .andExpect(content().bytes(DocumentFileRulesTest.JPEG));
+        verify(photoService).mine(2L);
+        // There is no employee endpoint that changes a photo.
+        mockMvc.perform(withToken(put("/api/employee/profile/photo"), employeeToken))
+                .andExpect(status().is4xxClientError());
+        mockMvc.perform(withToken(get("/api/employee/profile/photo"), hrToken)).andExpect(status().isForbidden());
+        verify(photoService, never()).upload(anyLong(), any(), any());
+    }
+
+    @Test
+    void accountWithoutAnEmployeeRecordGets404() throws Exception {
+        when(employeeService.mine(2L)).thenThrow(ApiException.notFound("No employee record is linked to this account."));
+
+        mockMvc.perform(withToken(get("/api/employee/profile"), employeeToken))
+                .andExpect(status().isNotFound());
     }
 }

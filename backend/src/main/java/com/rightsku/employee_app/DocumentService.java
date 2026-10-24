@@ -41,6 +41,7 @@ public class DocumentService {
     private final EmployeeDocumentFileRepository files;
     private final EmployeeRepository employees;
     private final AuditEntryRepository audit;
+    private final NotificationService notifications;
     private final long maxBytes;
 
     public DocumentService(
@@ -48,11 +49,13 @@ public class DocumentService {
             EmployeeDocumentFileRepository files,
             EmployeeRepository employees,
             AuditEntryRepository audit,
+            NotificationService notifications,
             @Value("${app.documents.max-bytes:" + DocumentFileRules.DEFAULT_MAX_BYTES + "}") long maxBytes) {
         this.documents = documents;
         this.files = files;
         this.employees = employees;
         this.audit = audit;
+        this.notifications = notifications;
         this.maxBytes = maxBytes;
     }
 
@@ -83,6 +86,7 @@ public class DocumentService {
         }
         files.save(new EmployeeDocumentFile(document.getId(), checked.bytes()));
         record(actorUserId, "DOCUMENT_UPLOADED", document);
+        notifications.documentPublished(document, false);
         return DocumentResponse.from(document);
     }
 
@@ -113,6 +117,10 @@ public class DocumentService {
         }
         documents.saveAndFlush(document);
         record(actorUserId, hasFile ? "DOCUMENT_REPLACED" : "DOCUMENT_RENAMED", document);
+        if (hasFile) {
+            // A corrected file is news for the employee; a new title alone is not.
+            notifications.documentPublished(document, true);
+        }
         return DocumentResponse.from(document);
     }
 

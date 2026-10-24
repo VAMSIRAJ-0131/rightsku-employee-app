@@ -33,6 +33,9 @@ public class HrTimesheetService {
     private final EmployeeRepository employees;
     private final LeaveRequestRepository leaveRequests;
     private final AuditEntryRepository audit;
+    private final NotificationService notifications;
+    private final WorkCalendarService calendars;
+    private final LeaveDays leaveDays;
     private final Clock clock;
 
     public HrTimesheetService(
@@ -40,12 +43,45 @@ public class HrTimesheetService {
             EmployeeRepository employees,
             LeaveRequestRepository leaveRequests,
             AuditEntryRepository audit,
+            NotificationService notifications,
+            WorkCalendarService calendars,
+            LeaveDays leaveDays,
             Clock clock) {
         this.entries = entries;
         this.employees = employees;
         this.leaveRequests = leaveRequests;
         this.audit = audit;
+        this.notifications = notifications;
+        this.calendars = calendars;
+        this.leaveDays = leaveDays;
         this.clock = clock;
+    }
+
+    /**
+     * Past working days of the week with no timesheet entry and no leave
+     * (approved or waiting): the 0-hour days the employee declared as LOP
+     * because no paid leave was left. Weekly offs, holidays and days before
+     * joining are never listed.
+     */
+    private List<LocalDate> zeroHourDays(Employee person, LocalDate monday) {
+        if (person == null) {
+            return List.of();
+        }
+        LocalDate sunday = monday.plusDays(6);
+        LocalDate today = LocalDate.now(clock);
+        List<LeaveDays.LeaveDay> leave = leaveDays.leaveBetween(person.getId(), monday, sunday);
+        Set<LocalDate> onLeave = leave.stream()
+                .filter(l -> l.status() != LeaveDays.Status.REJECTED)
+                .map(LeaveDays.LeaveDay::date).collect(Collectors.toSet());
+        Set<LocalDate> withEntry = entries.findByEmployeeIdAndWorkDateBetweenOrderByWorkDateDesc(person.getId(), monday, sunday)
+                .stream().map(TimesheetEntry::getWorkDate).collect(Collectors.toSet());
+        WeekTarget target = WeekTarget.of(calendars.calendarFor(person.getId(), monday, sunday).days(monday, sunday),
+                person.getJoiningDate(), leave);
+        return target.days().stream()
+                .filter(d -> d.takesHours() && !d.date().isAfter(today)
+                        && !withEntry.contains(d.date()) && !onLeave.contains(d.date()))
+                .map(WeekTarget.Day::date)
+                .toList();
     }
 
     /** Weeks with entries in this status (PENDING by default), newest week first. */
@@ -87,7 +123,8 @@ public class HrTimesheetService {
                     monday, monday.plusDays(6), total, submitted, wanted,
                     reviewed == null ? null : reviewed.getReviewedAt(),
                     reviewed == null ? null : reviewed.getReviewNote(),
-                    week.stream().map(TimesheetResponse::from).toList()));
+                    week.stream().map(TimesheetResponse::from).toList(),
+                    zeroHourDays(person, monday)));
         }
         result.sort(Comparator.comparing(HrTimesheetWeekResponse::weekStart).reversed()
                 .thenComparing(w -> w.employeeName() == null ? "" : w.employeeName()));
@@ -123,6 +160,7 @@ public class HrTimesheetService {
         audit.save(AuditEntry.of(reviewerUserId,
                 TimesheetEntry.STATUS_APPROVED.equals(newStatus) ? "TIMESHEET_APPROVED" : "TIMESHEET_REJECTED",
                 "TIMESHEET_WEEK", person.getEmployeeCode() + "/" + monday));
+        notifications.timesheetReviewed(person, monday, TimesheetEntry.STATUS_APPROVED.equals(newStatus), note);
 
         List<TimesheetEntry> week = new ArrayList<>(entries.findByEmployeeIdAndWorkDateBetweenOrderByWorkDateDesc(
                 person.getId(), monday, monday.plusDays(6)));
@@ -133,7 +171,7 @@ public class HrTimesheetService {
                 (person.getFirstName() + " " + person.getLastName()).trim(), monday, monday.plusDays(6), total,
                 week.stream().map(TimesheetEntry::getCreatedAt).filter(java.util.Objects::nonNull)
                         .max(Comparator.naturalOrder()).orElse(null),
-                newStatus, now, note, week.stream().map(TimesheetResponse::from).toList());
+                newStatus, now, note, week.stream().map(TimesheetResponse::from).toList(), zeroHourDays(person, monday));
     }
 
     /** Pending, approved and rejected counts for timesheets (per employee-week) and leave requests. */

@@ -129,6 +129,17 @@ public class AppUser {
         this.passwordChangedAt = changedAt;
     }
 
+    /**
+     * HR replaced a forgotten password with a temporary one (already hashed).
+     * Every existing session ends, and the account holder must choose their
+     * own password at the next sign-in.
+     */
+    public void resetToTemporaryPassword(String temporaryPasswordHash) {
+        this.passwordHash = temporaryPasswordHash;
+        this.mustChangePassword = true;
+        this.sessionVersion++;
+    }
+
     /** Changes the login email. The caller checks the format and that it is not already used. */
     public void changeEmail(String newEmail) {
         this.email = newEmail;

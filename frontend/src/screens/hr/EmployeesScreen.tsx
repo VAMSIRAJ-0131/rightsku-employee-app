@@ -20,6 +20,8 @@ import EmployeeDocumentsSection from './EmployeeDocumentsSection'
 import LeaveBalanceSection from './LeaveBalanceSection'
 import CompOffSection from './CompOffSection'
 import { ScheduleForm, ScheduleSection } from './ScheduleSection'
+import EmployeePhotoEditor from './EmployeePhotoEditor'
+import ResetPasswordForm from './ResetPasswordForm'
 
 type View =
   | { kind: 'list' }
@@ -29,6 +31,7 @@ type View =
   | { kind: 'schedule'; record: EmployeeRecord; current: ScheduleView }
   | { kind: 'upload'; record: EmployeeRecord }
   | { kind: 'replace'; record: EmployeeRecord; document: DocumentRecord }
+  | { kind: 'reset-password'; record: EmployeeRecord }
 
 interface Props {
   token: string
@@ -136,6 +139,21 @@ export default function EmployeesScreen({ token, onToast, onSessionExpired, onCh
       />
     )
   }
+  if (view.kind === 'reset-password') {
+    const back = () => setView({ kind: 'details', id: view.record.id, initial: view.record })
+    return (
+      <ResetPasswordForm
+        token={token}
+        record={view.record}
+        onCancel={back}
+        onError={handleError}
+        onDone={() => {
+          onToast(`Password reset. ${view.record.firstName} must choose a new one at the next sign-in.`, 'success')
+          back()
+        }}
+      />
+    )
+  }
   if (view.kind === 'details') {
     return (
       <EmployeeDetails
@@ -149,6 +167,7 @@ export default function EmployeesScreen({ token, onToast, onSessionExpired, onCh
         onEditSchedule={(record, current) => setView({ kind: 'schedule', record, current })}
         onUpload={(record) => setView({ kind: 'upload', record })}
         onReplace={(record, document) => setView({ kind: 'replace', record, document })}
+        onResetPassword={(record) => setView({ kind: 'reset-password', record })}
         onToast={onToast}
         onError={handleError}
         onStatusChanged={(record) => {
@@ -342,7 +361,8 @@ function ListSkeleton() {
 /* ---------------------------------------------------------------- Details */
 
 function EmployeeDetails({
-  token, id, initial, version, onBack, onEdit, onEditSchedule, onUpload, onReplace, onToast, onError, onStatusChanged,
+  token, id, initial, version, onBack, onEdit, onEditSchedule, onUpload, onReplace, onResetPassword, onToast, onError,
+  onStatusChanged,
 }: {
   token: string
   id: number
@@ -352,6 +372,7 @@ function EmployeeDetails({
   onEdit: (record: EmployeeRecord) => void
   onEditSchedule: (record: EmployeeRecord, current: ScheduleView) => void
   onUpload: (record: EmployeeRecord) => void
+  onResetPassword: (record: EmployeeRecord) => void
   onReplace: (record: EmployeeRecord, document: DocumentRecord) => void
   onToast: (text: string, tone?: 'info' | 'success' | 'error') => void
   onError: (error: ApiError) => ApiError
@@ -421,7 +442,7 @@ function EmployeeDetails({
         <>
           <Section>
             <Card className="flex items-center gap-4 px-4 py-5">
-              <Avatar name={fullName(record)} size="lg" />
+              <EmployeePhotoEditor token={token} employeeId={record.id} name={fullName(record)} onToast={onToast} onError={onError} />
               <div className="min-w-0">
                 <p className="truncate text-[18px] font-semibold text-ink">{fullName(record)}</p>
                 <p className="truncate text-[14px] text-ink-muted">{record.jobTitle ?? 'No job title yet'}</p>
@@ -445,6 +466,18 @@ function EmployeeDetails({
               <DetailRow icon="phone" label="Phone" value={record.phone ?? ''} />
               <DetailRow icon="lock" label="Signs in with" value={record.employeeCode} />
             </Card>
+            {active && (
+              <div className="mt-3">
+                <List>
+                  <ListRow
+                    icon="shield"
+                    title="Reset forgotten password"
+                    subtitle="Set a temporary password they must change"
+                    onClick={() => onResetPassword(record)}
+                  />
+                </List>
+              </div>
+            )}
           </Section>
 
           <ScheduleSection
@@ -716,7 +749,7 @@ function Field({
           onChange={(e) => onChange(e.target.value)}
           aria-invalid={!!error}
           aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
-          className={`h-12 w-full rounded-lg border bg-white px-4 text-[15px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
+          className={`h-12 w-full rounded-xl border bg-white px-4 text-[15px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
             error ? 'border-bad/50' : 'border-line-strong'
           } ${trailing ? 'pr-12' : ''}`}
           {...rest}

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RightCentral launcher mark (adaptive icon foreground, 108dp canvas).
+     The open ring and two identical rising arrows follow the RIGHTSKU logo;
+     the navy background comes from @color/ic_launcher_background.
+     Both arrows are the same shape at the same size (scale 0.615 about the
+     arrow's centre 57.6,51.1), parallel, 3 units apart, centred on the ring
+     and fully inside it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="1.1"
+        android:scaleY="1.1">
+        <path
+            android:pathData="M76.55,45.79 A24,24 0 1,1 58.17,30.36"
+            android:strokeWidth="6"
+            android:strokeLineCap="round">
+            <aapt:attr name="android:strokeColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="30"
+                    android:startY="78"
+                    android:endX="78"
+                    android:endY="30"
+                    android:startColor="#FF1E88D2"
+                    android:endColor="#FF9FDBFF" />
+            </aapt:attr>
+        </path>
+        <!-- Upper arrow -->
+        <group
+            android:pivotX="57.6"
+            android:pivotY="51.1"
+            android:scaleX="0.615"
+            android:scaleY="0.615"
+            android:translateX="-7.24"
+            android:translateY="-2.5">
+            <path
+                android:pathData="M37,65 L47,55 L55,62 L70,46"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="6"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round" />
+            <path
+                android:pathData="M78.2,37.2 L75.1,50.8 L64.9,41.2 Z"
+                android:fillColor="#FFFFFFFF"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="2"
+                android:strokeLineJoin="round" />
+        </group>
+        <!-- Lower arrow (identical) -->
+        <group
+            android:pivotX="57.6"
+            android:pivotY="51.1"
+            android:scaleX="0.615"
+            android:scaleY="0.615"
+            android:translateX="0.04"
+            android:translateY="8.3">
+            <path
+                android:pathData="M37,65 L47,55 L55,62 L70,46"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="6"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round" />
+            <path
+                android:pathData="M78.2,37.2 L75.1,50.8 L64.9,41.2 Z"
+                android:fillColor="#FFFFFFFF"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="2"
+                android:strokeLineJoin="round" />
+        </group>
+    </group>
+</vector>

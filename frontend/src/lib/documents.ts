@@ -108,6 +108,26 @@ export function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/** The employee's document filter: everything, or one document type. */
+export type DocumentFilter = 'All' | DocType
+
+/** The filter choices in display order. */
+export const DOCUMENT_FILTERS: DocumentFilter[] = ['All', 'Offer Letter', 'Experience Letter', 'Payslip', 'Form 16']
+
+/** The documents shown for a filter (all of them for 'All'). */
+export function filterDocuments(docs: EmployeeDocument[], filter: DocumentFilter): EmployeeDocument[] {
+  return filter === 'All' ? docs : docs.filter((d) => d.type === filter)
+}
+
+/** Dropdown options with how many documents each choice shows (no count while loading). */
+export function documentFilterOptions(docs: EmployeeDocument[] | null) {
+  return DOCUMENT_FILTERS.map((f) => ({
+    value: f,
+    label: f === 'All' ? 'All documents' : f,
+    hint: docs ? String(filterDocuments(docs, f).length) : undefined,
+  }))
+}
+
 /** The shape the employee screens already use. */
 export function toEmployeeDocument(record: DocumentRecord, employeeId: string): EmployeeDocument {
   return {

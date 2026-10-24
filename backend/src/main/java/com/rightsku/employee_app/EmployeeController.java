@@ -71,6 +71,20 @@ public class EmployeeController {
         return employeeService.setActive(id, false, actorId(jwt));
     }
 
+    /**
+     * Resets a forgotten password to a temporary one chosen by HR (204, no
+     * body: the password is never sent back). The employee must change it at
+     * the next sign-in, and their existing sessions end.
+     */
+    @PostMapping("/{id}/reset-password")
+    public ResponseEntity<Void> resetPassword(
+            @PathVariable long id,
+            @Valid @RequestBody HrPasswordResetRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
+        employeeService.resetPassword(id, request, actorId(jwt));
+        return ResponseEntity.noContent().build();
+    }
+
     /** The signed-in HR Admin's user ID (the token subject), for the audit log. */
     private static Long actorId(Jwt jwt) {
         return jwt == null ? null : Long.valueOf(jwt.getSubject());

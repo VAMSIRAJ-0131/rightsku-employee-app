@@ -164,8 +164,8 @@ export function ScheduleForm({
                     aria-pressed={off}
                     aria-label={`${d.label}, ${off ? 'weekly off' : 'working day'}`}
                     onClick={() => toggle(d.id)}
-                    className={`h-12 rounded-lg text-[13px] font-semibold ring-1 ring-inset ${
-                      off ? 'bg-navy-900 text-white ring-navy-900' : 'bg-white text-ink ring-line-strong hover:bg-mist-50'
+                    className={`press h-12 rounded-xl text-[13px] font-semibold transition-transform duration-150 ${
+                      off ? 'gloss-navy text-white' : 'gloss-light border border-line-strong text-ink'
                     }`}
                   >
                     {d.short}
@@ -245,7 +245,7 @@ export function ScheduleForm({
 }
 
 function inputClass(invalid: boolean) {
-  return `mt-1.5 h-12 w-full rounded-lg border bg-white px-4 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
+  return `mt-1.5 h-12 w-full rounded-xl border bg-white px-4 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
     invalid ? 'border-bad/50' : 'border-line-strong'
   }`
 }

@@ -63,6 +63,8 @@ class TimesheetServiceTest {
     private final List<TimesheetEntry> savedEntries = new ArrayList<>();
     private final Map<String, TimesheetWeek> savedWeeks = new HashMap<>();
     private final List<LeaveDays.LeaveDay> leave = new ArrayList<>();
+    /** Whether the employee still has paid leave (decides what an empty working day means). */
+    private boolean paidLeaveLeft = true;
 
     @BeforeEach
     void setUp() {
@@ -74,7 +76,8 @@ class TimesheetServiceTest {
         WorkCalendarService calendarService = new WorkCalendarService(schedules, holidays, "SATURDAY,SUNDAY", NINE);
         LeaveDays leaveDays = (employeeId, from, to) -> leave.stream()
                 .filter(l -> !l.date().isBefore(from) && !l.date().isAfter(to)).toList();
-        service = new TimesheetService(entries, weeks, employees, calendarService, leaveDays, CLOCK);
+        service = new TimesheetService(entries, weeks, employees, calendarService, leaveDays,
+                employeeId -> paidLeaveLeft, CLOCK);
 
         employee(10L, 110L, "EMP010", null);  // Ravi: company default (Sat + Sun off, 9 h)
         employee(20L, 120L, "EMP020", null);  // Priya: Friday + Saturday off, 8 h (set below)
@@ -183,7 +186,8 @@ class TimesheetServiceTest {
         assertThat(week.days()).extracting(WeekTimesheetResponse.Day::editable)
                 .containsExactly(true, true, true, true, true, false, false);
         assertThat(week.canSubmit()).isFalse();
-        assertThat(week.submitBlockedReason()).isEqualTo("Enter 45 more hours to reach this week's 45 hours.");
+        assertThat(week.submitBlockedReason()).isEqualTo("Enter this week's 45 hours.");
+        assertThat(week.paidLeaveAvailable()).isTrue();
     }
 
     @Test
@@ -374,11 +378,21 @@ class TimesheetServiceTest {
 
     @Test
     void notEnoughHoursBlocksSubmitting() {
-        Throwable thrown = catchThrowable(() ->
+        Throwable blank = catchThrowable(() ->
                 service.submitWeek(110L, week(OCT_5, WORK, weekdays(OCT_5, "9", "9", "9", "9", ""))));
+        assertApiError(blank, HttpStatus.BAD_REQUEST, "target");
+        assertThat(blank).as("a blank day is not filled in yet")
+                .hasMessage("Fri 9 Oct is not filled in. Enter the hours worked, or 0 for a day you did not work.");
 
+        Throwable thrown = catchThrowable(() ->
+                service.submitWeek(110L, week(OCT_5, WORK, weekdays(OCT_5, "9", "9", "9", "9", "0"))));
+
+        // Paid leave is still available, so a 0-hour Friday must be covered by leave (or hours).
         assertApiError(thrown, HttpStatus.BAD_REQUEST, "target");
-        assertThat(thrown).hasMessage("Enter 9 more hours to reach this week's 45 hours.");
+        assertThat(thrown).hasMessage("Fri 9 Oct has no hours. You still have paid leave, so apply for leave for that day or enter the hours worked.");
+        Throwable partly = catchThrowable(() ->
+                service.submitWeek(110L, week(OCT_5, WORK, weekdays(OCT_5, "9", "9", "9", "9", "8"))));
+        assertThat(partly).hasMessage("Enter 1 more hours: this week needs exactly 45 hours.");
         verify(entries, never()).saveAndFlush(any());
         verify(weeks, never()).saveAndFlush(any());
     }
@@ -394,13 +408,13 @@ class TimesheetServiceTest {
     }
 
     @Test
-    void aWeekWithHalfADayOfLeaveIsCheckedAgainstTheLowerTarget() {
+    void aWeekWithHalfADayOfLeaveCountsTheLeaveTowardThe45Hours() {
         approvedLeave("2026-10-09", LeaveDays.Portion.HALF_DAY);
 
         Throwable short1 = catchThrowable(() ->
                 service.submitWeek(110L, week(OCT_5, WORK, weekdays(OCT_5, "9", "9", "9", "9", "4.25"))));
         assertApiError(short1, HttpStatus.BAD_REQUEST, "target");
-        assertThat(short1).hasMessage("Enter 0.25 more hours to reach this week's 40.5 hours.");
+        assertThat(short1).hasMessage("Enter 0.25 more hours: this week needs exactly 45 hours (4.5 h approved leave + 40.5 h worked).");
 
         WeekTimesheetResponse submitted = service.submitWeek(110L,
                 week(OCT_5, WORK, weekdays(OCT_5, "9", "9", "9", "9", "4.5")));
@@ -410,20 +424,24 @@ class TimesheetServiceTest {
     }
 
     @Test
-    void emptyDaysAreAllowedWhenTheWeekStillReachesItsTarget() {
-        // A 7-hour schedule: the target is 35 h, so four days of 9 h with Friday left empty is enough.
+    void hoursMustMatchTheTargetExactlyNotJustReachIt() {
+        // A 7-hour schedule: the target is 35 h. Four 9-hour days and an empty Friday
+        // used to be enough; now the empty day needs leave, and the total must be exactly 35.
         employee(40L, 140L, "EMP040", null);
         when(schedules.findByEmployeeIdOrderByEffectiveFromAsc(40L)).thenReturn(List.of(
                 WorkSchedule.create(40L, d("2026-01-01"), EnumSet.of(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY),
                         new BigDecimal("7"), 1L)));
 
+        Throwable over = catchThrowable(() -> service.submitWeek(140L, week(OCT_5, WORK,
+                weekdays(OCT_5, "9", "9", "9", "9", "1"))));
+        assertApiError(over, HttpStatus.BAD_REQUEST, "target");
+        assertThat(over).hasMessage("This week needs exactly 35 hours, but 37 are entered. Remove 2 hours.");
+
         WeekTimesheetResponse submitted = service.submitWeek(140L, week(OCT_5, WORK,
-                weekdays(OCT_5, "9", "9", "9", "9", "")));
-
+                weekdays(OCT_5, "7", "7", "7", "7", "7")));
         assertThat(submitted.target().expectedHours()).isEqualByComparingTo("35");
-
         assertThat(submitted.status()).isEqualTo("SUBMITTED");
-        assertThat(savedEntries).hasSize(4);
+        assertThat(savedEntries).hasSize(5);
     }
 
     @Test
@@ -600,7 +618,7 @@ class TimesheetServiceTest {
 
     @Test
     void hoursBelowOneOrAboveNineOrNotQuarterHoursAreRefused() {
-        for (String bad : new String[] {"0", "-1", "0.25", "0.5", "0.75", "0.99", "9.25", "10", "24", "7.1", "1.2"}) {
+        for (String bad : new String[] {"-1", "0.25", "0.5", "0.75", "0.99", "9.25", "10", "24", "7.1", "1.2"}) {
             Throwable draft = catchThrowable(() -> service.saveDraft(110L, week(OCT_5, null, "2026-10-06=" + bad)));
             assertApiError(draft, HttpStatus.BAD_REQUEST, "days[2026-10-06]");
             assertThat(draft).as(bad).hasMessage("Enter hours from 1 to 9, in steps of 0.25 (15 minutes).");
@@ -707,5 +725,94 @@ class TimesheetServiceTest {
         assertApiError(catchThrowable(() -> service.weekMine(1L, d(OCT_5))), HttpStatus.NOT_FOUND, null);
         assertApiError(catchThrowable(() -> service.saveDraft(1L, week(OCT_5, null))), HttpStatus.NOT_FOUND, null);
         verify(weeks, never()).saveAndFlush(any());
+    }
+
+    /* ---------- Empty days and LOP (no paid leave left) ---------- */
+
+    @Test
+    void withNoPaidLeaveLeftAZeroHourDayIsLopAndTheWeekNeedsTheRestExactly() {
+        paidLeaveLeft = false;
+
+        WeekTimesheetResponse before = service.weekMine(110L, d(OCT_5));
+        assertThat(before.paidLeaveAvailable()).isFalse();
+
+        WeekTimesheetResponse submitted = service.submitWeek(110L, week(OCT_5, WORK, weekdays(OCT_5, "9", "9", "9", "9", "0")));
+
+        assertThat(submitted.status()).isEqualTo("SUBMITTED");
+        assertThat(savedEntries).as("no entry is made for the LOP day").hasSize(4);
+        assertThat(submitted.target().expectedHours()).as("the week's own target is unchanged").isEqualByComparingTo("45");
+        assertThat(submitted.target().requiredHours()).isEqualByComparingTo("36");
+        assertThat(submitted.target().lopDays()).isEqualTo(1);
+        assertThat(dayOf(submitted, "2026-10-09").emptyMeaning()).isEqualTo("LOP");
+        assertThat(dayOf(submitted, "2026-10-05").emptyMeaning()).isNull();
+    }
+
+    @Test
+    void withNoPaidLeaveLeftTheRestMustStillMatchExactly() {
+        paidLeaveLeft = false;
+
+        Throwable shortWeek = catchThrowable(() -> service.submitWeek(110L, week(OCT_5, WORK, weekdays(OCT_5, "9", "9", "9", "8", "0"))));
+        assertApiError(shortWeek, HttpStatus.BAD_REQUEST, "target");
+        assertThat(shortWeek).hasMessage("Enter 1 more hours: this week needs exactly 36 hours.");
+
+        Throwable allEmpty = catchThrowable(() -> service.submitWeek(110L, week(OCT_5, WORK, weekdays(OCT_5, "", "", "", "", ""))));
+        assertThat(allEmpty).as("a week can't be submitted with no hours at all").hasMessage("Enter hours for at least one working day.");
+        verify(entries, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void anEmptyDayWithLeaveWaitingForHrIsNotLopAndLeavesTheTotal() {
+        leave.add(new LeaveDays.LeaveDay(d("2026-10-09"), LeaveDays.Portion.FULL_DAY, LeaveDays.Status.PENDING));
+        // Paid leave is still available, but the Friday is already covered by a leave request.
+
+        WeekTimesheetResponse submitted = service.submitWeek(110L, week(OCT_5, WORK, weekdays(OCT_5, "9", "9", "9", "9", "0")));
+
+        assertThat(submitted.target().requiredHours()).isEqualByComparingTo("36");
+        assertThat(submitted.target().lopDays()).isZero();
+        assertThat(dayOf(submitted, "2026-10-09").emptyMeaning()).isEqualTo("PENDING_LEAVE");
+        assertThat(dayOf(submitted, "2026-10-09").pendingLeave()).isTrue();
+    }
+
+    @Test
+    void holidaysWeeklyOffsAndApprovedLeaveAreNeverLopOrCountedTwice() {
+        paidLeaveLeft = false;
+        approvedLeave("2026-09-29", LeaveDays.Portion.FULL_DAY);   // Tuesday, approved
+        // Week of 28 Sep: Friday 2 Oct is a holiday; Sat/Sun weekly offs. Thursday left empty.
+
+        WeekTimesheetResponse submitted = service.submitWeek(110L, week(SEP_28, WORK,
+                SEP_28 + "=9", "2026-09-30=9", "2026-10-01=0"));
+
+        assertThat(submitted.target().expectedHours()).as("45 - 9 holiday - 9 leave").isEqualByComparingTo("27");
+        assertThat(submitted.target().requiredHours()).as("27 - 9 for the LOP Thursday").isEqualByComparingTo("18");
+        assertThat(submitted.target().lopDays()).as("only Thursday").isEqualTo(1);
+        assertThat(dayOf(submitted, "2026-10-02").emptyMeaning()).as("holiday").isNull();
+        assertThat(dayOf(submitted, "2026-09-29").emptyMeaning()).as("approved leave").isNull();
+        assertThat(dayOf(submitted, "2026-10-03").emptyMeaning()).as("weekly off").isNull();
+    }
+
+    @Test
+    void aNewJoinerIsOnlyCountedFromTheJoiningDate() {
+        paidLeaveLeft = false;
+        employee(50L, 150L, "EMP050", d("2026-10-07"));   // joined Wednesday
+
+        WeekTimesheetResponse submitted = service.submitWeek(150L, week(OCT_5, WORK,
+                "2026-10-07=9", "2026-10-08=9", "2026-10-09=0"));
+
+        assertThat(submitted.target().expectedHours()).isEqualByComparingTo("27");
+        assertThat(submitted.target().requiredHours()).isEqualByComparingTo("18");
+        assertThat(submitted.target().lopDays()).as("Monday and Tuesday were before joining").isEqualTo(1);
+        assertThat(dayOf(submitted, "2026-10-05").emptyMeaning()).isNull();
+    }
+
+    @Test
+    void withPaidLeaveLeftTheAppSeesWhichDaysStillNeedLeave() {
+        service.saveDraft(110L, week(OCT_5, null, weekdays(OCT_5, "9", "9", "9", "9", "0")));
+
+        WeekTimesheetResponse draft = service.weekMine(110L, d(OCT_5));
+
+        assertThat(draft.canSubmit()).isFalse();
+        assertThat(dayOf(draft, "2026-10-09").emptyMeaning()).isEqualTo("NEEDS_LEAVE");
+        assertThat(draft.submitBlockedReason()).startsWith("Fri 9 Oct has no hours. You still have paid leave");
+        assertThat(draft.target().requiredHours()).isEqualByComparingTo("45");
     }
 }

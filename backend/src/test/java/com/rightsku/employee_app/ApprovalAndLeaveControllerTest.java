@@ -117,7 +117,7 @@ class ApprovalAndLeaveControllerTest {
     @Test
     void hrReviewsAWeekAsThemselves() throws Exception {
         when(timesheets.review(any(), eq(1L))).thenReturn(new HrTimesheetWeekResponse(10L, "EMP010", "Ravi Kumar",
-                LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"), new BigDecimal("45"), null, "APPROVED", null, null, List.of()));
+                LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"), new BigDecimal("45"), null, "APPROVED", null, null, List.of(), List.of()));
         when(timesheets.summary()).thenReturn(new ApprovalSummaryResponse(
                 new ApprovalSummaryResponse.Counts(2, 5, 1), new ApprovalSummaryResponse.Counts(1, 0, 0)));
 

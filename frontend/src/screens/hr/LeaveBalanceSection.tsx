@@ -193,7 +193,7 @@ export default function LeaveBalanceSection({
                       value={form.days}
                       onChange={(e) => update('days', e.target.value)}
                       aria-invalid={!!errors.days}
-                      className="tnum mt-1.5 h-11 w-full rounded-lg border border-line-strong bg-white px-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100"
+                      className="tnum mt-1.5 h-11 w-full rounded-xl border border-line-strong bg-white px-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100"
                     />
                   </label>
                   {errors.days && <p className="text-[12px] text-bad" role="alert">{errors.days}</p>}
@@ -233,7 +233,7 @@ export default function LeaveBalanceSection({
                       value={form.days}
                       onChange={(e) => update('days', e.target.value)}
                       aria-invalid={!!errors.days}
-                      className="tnum mt-1.5 h-11 w-full rounded-lg border border-line-strong bg-white px-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100"
+                      className="tnum mt-1.5 h-11 w-full rounded-xl border border-line-strong bg-white px-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100"
                     />
                   </label>
                   {errors.days ? (
@@ -255,7 +255,7 @@ export default function LeaveBalanceSection({
                       placeholder="For example: Worked on Sunday 18 Oct"
                       onChange={(e) => update('reason', e.target.value)}
                       aria-invalid={!!errors.reason}
-                      className="mt-1.5 w-full resize-none rounded-lg border border-line-strong bg-white px-3 py-2 text-[14px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-mist-500 focus:ring-4 focus:ring-mist-100"
+                      className="mt-1.5 w-full resize-none rounded-xl border border-line-strong bg-white px-3 py-2 text-[14px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-mist-500 focus:ring-4 focus:ring-mist-100"
                     />
                   </label>
                   {errors.reason && <p className="text-[12px] text-bad" role="alert">{errors.reason}</p>}

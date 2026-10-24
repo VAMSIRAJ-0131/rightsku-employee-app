@@ -83,13 +83,16 @@ export function mapBackendRole(role: unknown): Role | null {
 }
 
 /**
- * Builds the dashboard profile from the login response. The backend does not
- * send name, department, etc. yet, so those stay empty rather than invented.
+ * Builds the starting dashboard profile from the login response, which has no
+ * name, department, etc. Employees: the Employee App then loads the real
+ * details from GET /api/employee/profile (see lib/profile.ts); until then the
+ * name shows the Employee ID, never the email. HR Admins have no employee
+ * record, so their email stays as the name.
  */
 export function profileFromAuth(userId: number, loginId: string | null, email: string, role: Role): Employee {
   return {
     id: loginId ?? `USER-${userId}`,
-    name: email,
+    name: role === 'employee' && loginId ? loginId : email,
     department: '',
     designation: role === 'hr' ? 'HR Admin' : '',
     joiningDate: '',

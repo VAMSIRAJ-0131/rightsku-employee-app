@@ -4,7 +4,7 @@
 // decision the list and all counts are loaded again.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../../components/Icons'
-import { Avatar, Button, Card, EmptyState, Notice, Section, Segmented, Spinner, StatusBadge, TopBar } from '../../components/ui'
+import { Avatar, Button, Card, EmptyState, Notice, Section, Segmented, Spinner, StatusBadge, TopBar, useBackHandler } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import { formatShortDate, plural } from '../../lib/format'
 import {
@@ -137,15 +137,15 @@ export default function ApprovalsScreen({
           }}
         />
         <div className="mt-3 flex flex-col gap-2">
-          <div className="flex w-full rounded-lg border border-line bg-white p-0.5" role="group" aria-label="Status">
+          <div className="flex w-full rounded-xl border border-line bg-white p-0.5" role="group" aria-label="Status">
             {REVIEW_STATUSES.map((s) => (
               <button
                 key={s}
                 type="button"
                 aria-pressed={status === s}
                 onClick={() => setStatus(s)}
-                className={`tnum h-9 flex-1 rounded-md px-2.5 text-[13px] font-medium ${
-                  status === s ? 'bg-navy-900 text-white' : 'text-ink-soft hover:bg-mist-50'
+                className={`press tnum h-9 flex-1 rounded-lg px-2.5 text-[13px] font-medium transition-transform duration-150 ${
+                  status === s ? 'gloss-navy text-white' : 'text-ink-soft hover:bg-mist-50'
                 }`}
               >
                 {statusLabel(s)}
@@ -163,7 +163,7 @@ export default function ApprovalsScreen({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Name or ID"
-              className="h-10 w-full rounded-lg border border-line-strong bg-white pl-8 pr-2 text-[14px] text-ink outline-none placeholder:text-ink-muted focus:border-mist-500 focus:ring-4 focus:ring-mist-100"
+              className="h-10 w-full rounded-xl border border-line-strong bg-white pl-8 pr-2 text-[14px] text-ink outline-none placeholder:text-ink-muted focus:border-mist-500 focus:ring-4 focus:ring-mist-100"
             />
           </label>
         </div>
@@ -284,6 +284,17 @@ function WeekCard({ week, onDecide }: { week: HrTimesheetWeek; onDecide: (d: Dec
           </>
         )}
       </p>
+      {(week.zeroHourDays?.length ?? 0) > 0 && (
+        // Shown before deciding: approving the week makes these days LOP.
+        <p className="mt-2 flex gap-1.5 rounded-lg bg-rejected-soft px-2.5 py-2 text-[12px] leading-snug text-rejected-ink">
+          <Icon name="alert" className="mt-[1px] h-3.5 w-3.5 shrink-0" />
+          <span>
+            <span className="font-semibold">LOP: </span>
+            {week.zeroHourDays!.map((d) => `${new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' })} ${formatShortDate(d)}`).join(', ')}
+            {' '}left at 0 hours (no paid leave left).{week.status === 'PENDING' ? ' Approving this week makes them Loss of Pay.' : ''}
+          </span>
+        </p>
+      )}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -295,7 +306,7 @@ function WeekCard({ week, onDecide }: { week: HrTimesheetWeek; onDecide: (d: Dec
         {open ? 'Hide days' : 'Show days'}
       </button>
       {open && (
-        <ul id={id} className="mt-1 divide-y divide-line rounded-lg border border-line bg-mist-50/40">
+        <ul id={id} className="mt-1 divide-y divide-line rounded-xl border border-line bg-mist-50/40">
           {week.days.map((d) => (
             <li key={d.id} className="px-3 py-2">
               <div className="tnum flex items-baseline justify-between gap-2 text-[13px]">
@@ -368,6 +379,7 @@ function DecisionSheet({
   const first = useRef<HTMLTextAreaElement | HTMLButtonElement | null>(null)
   const reject = decision === 'reject'
 
+  useBackHandler(onCancel)
   useEffect(() => {
     first.current?.focus()
     const onKey = (e: KeyboardEvent) => {
@@ -389,8 +401,8 @@ function DecisionSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-end bg-navy-950/40 p-4 sm:place-items-center">
-      <div role="alertdialog" aria-modal="true" aria-labelledby="decision-title" className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+    <div className="backdrop-enter fixed inset-0 z-50 grid place-items-end bg-navy-950/45 p-4 backdrop-blur-[2px] sm:place-items-center">
+      <div role="alertdialog" aria-modal="true" aria-labelledby="decision-title" className="sheet sheet-enter w-full max-w-sm p-5">
         <p id="decision-title" className="text-[16px] font-semibold leading-snug text-ink">{question}</p>
         {reject ? (
           <label className="mt-3 block" htmlFor="decision-reason">
@@ -406,7 +418,7 @@ function DecisionSheet({
                 setReasonError(null)
               }}
               aria-invalid={!!reasonError}
-              className={`mt-1.5 w-full rounded-lg border bg-white px-3 py-2 text-[14px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${reasonError ? 'border-bad/50' : 'border-line-strong'}`}
+              className={`mt-1.5 w-full rounded-xl border bg-white px-3 py-2 text-[14px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${reasonError ? 'border-bad/50' : 'border-line-strong'}`}
             />
             {reasonError && <span className="mt-1 block text-[12px] text-bad" role="alert">{reasonError}</span>}
           </label>
@@ -432,8 +444,8 @@ function DecisionSheet({
             type="button"
             onClick={submit}
             disabled={saving}
-            className={`inline-flex h-12 items-center justify-center gap-2 rounded-lg text-[15px] font-semibold disabled:opacity-60 ${
-              reject ? 'bg-bad text-white hover:opacity-90' : 'bg-navy-900 text-white hover:bg-navy-800'
+            className={`press inline-flex h-12 items-center justify-center gap-2 rounded-xl text-[15px] font-semibold text-white transition-transform duration-150 disabled:opacity-60 ${
+              reject ? 'gloss-red' : 'gloss-navy'
             }`}
           >
             {saving && <Spinner />} {reject ? 'Reject' : 'Approve'}

@@ -164,10 +164,10 @@ class ScheduleAndTimesheetControllerTest {
         return new WeekTimesheetResponse(LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"),
                 LocalDate.parse("2026-10-14"), status, "Built the payslip screen", null, null,
                 List.of(new WeekTimesheetResponse.Day(LocalDate.parse("2026-10-05"), "WORKING", false, null, false, null,
-                        nine, nine, nine, null, true)),
+                        nine, nine, nine, null, true, false, null)),
                 new WeekTimesheetResponse.Target(new BigDecimal("45.00"), BigDecimal.ZERO, BigDecimal.ZERO,
-                        new BigDecimal("45.00"), nine, new BigDecimal("36.00")),
-                LocalDate.parse("2026-10-09"), false, "Enter 36 more hours to reach this week's 45 hours.");
+                        new BigDecimal("45.00"), nine, new BigDecimal("36.00"), new BigDecimal("45.00"), 0),
+                LocalDate.parse("2026-10-09"), false, "Enter 36 more hours: this week needs exactly 45 hours.", true);
     }
 
     @Test
@@ -180,7 +180,7 @@ class ScheduleAndTimesheetControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.target.expectedHours").value(45.00))
                 .andExpect(jsonPath("$.target.remainingHours").value(36.00))
-                .andExpect(jsonPath("$.submitBlockedReason").value("Enter 36 more hours to reach this week's 45 hours."));
+                .andExpect(jsonPath("$.submitBlockedReason").value("Enter 36 more hours: this week needs exactly 45 hours."));
         mockMvc.perform(as(json(put("/api/employee/timesheets/week/draft"), WEEK), employeeToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DRAFT"));

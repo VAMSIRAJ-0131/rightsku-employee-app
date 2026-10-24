@@ -5,6 +5,22 @@ import { Icon, type IconName } from './Icons'
 import { Logo } from './Logo'
 import type { Status } from '../data/types'
 import { initials } from '../lib/format'
+import { backStack } from '../lib/backStack'
+
+/**
+ * While mounted (and enabled), Android Back runs `handler`. Later-mounted
+ * handlers (a dialog over a screen) run first. The latest handler is always
+ * used, without changing its place.
+ */
+export function useBackHandler(handler: (() => void) | undefined, enabled = true) {
+  const latest = useRef(handler)
+  latest.current = handler
+  const active = enabled && !!handler
+  useEffect(() => {
+    if (!active) return
+    return backStack.push(() => latest.current?.())
+  }, [active])
+}
 
 /* ---------- Layout ---------- */
 
@@ -70,7 +86,9 @@ export function CenteredHeader({ start, end }: { start: ReactNode; end?: ReactNo
 }
 
 /** The user's initials as a button (for example, the header shortcut to the profile). */
-export function AvatarButton({ name, label, onClick }: { name: string; label: string; onClick: () => void }) {
+export function AvatarButton({
+  name, label, onClick, photoUrl,
+}: { name: string; label: string; onClick: () => void; photoUrl?: string | null }) {
   return (
     <button
       type="button"
@@ -78,7 +96,7 @@ export function AvatarButton({ name, label, onClick }: { name: string; label: st
       aria-label={label}
       className="grid h-11 w-11 place-items-center rounded-full hover:bg-mist-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-700"
     >
-      <Avatar name={name} size="sm" />
+      <Avatar name={name} size="sm" photoUrl={photoUrl} />
     </button>
   )
 }
@@ -95,6 +113,8 @@ export function TopBar({
   onBack?: () => void
   right?: ReactNode
 }) {
+  // The back gesture does exactly what the back arrow does.
+  useBackHandler(onBack)
   return (
     <header className="sticky top-0 z-10 border-b border-line bg-canvas/95 pt-[env(safe-area-inset-top)] backdrop-blur">
       <div className="flex min-h-16 items-center gap-2 px-3 py-2">
@@ -128,16 +148,16 @@ export function Section({ title, action, children, className = '' }: { title?: s
 }
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-xl border border-line bg-white shadow-card ${className}`}>{children}</div>
+  return <div className={`card-surface rounded-2xl border border-line ${className}`}>{children}</div>
 }
 
-/** Card that can be tapped. */
+/** Card that can be tapped. A slight press-in gives feedback on touch. */
 export function CardButton({ children, onClick, className = '', label }: { children: ReactNode; onClick: () => void; className?: string; label?: string }) {
   return (
     <button
       onClick={onClick}
       aria-label={label}
-      className={`rounded-xl border border-line bg-white text-left shadow-card transition-colors hover:border-line-strong active:bg-mist-50 ${className}`}
+      className={`press card-surface rounded-2xl border border-line text-left transition-[border-color,transform] duration-150 hover:border-line-strong ${className}`}
     >
       {children}
     </button>
@@ -148,7 +168,7 @@ export function CardButton({ children, onClick, className = '', label }: { child
 export function IconTile({ icon, tone = 'mist' }: { icon: IconName; tone?: 'mist' | 'navy' | 'accent' }) {
   const tones = {
     mist: 'bg-mist-50 text-navy-700 ring-1 ring-inset ring-mist-100',
-    navy: 'bg-navy-900 text-white',
+    navy: 'gloss-navy text-white',
     accent: 'bg-accent-soft text-accent',
   }
   return (
@@ -158,8 +178,22 @@ export function IconTile({ icon, tone = 'mist' }: { icon: IconName; tone?: 'mist
   )
 }
 
-export function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' }) {
-  const sizes = { sm: 'h-9 w-9 text-[12px]', md: 'h-10 w-10 text-[13px]', lg: 'h-16 w-16 text-lg' }
+/**
+ * The person's photo when one is given (an object URL loaded with the
+ * token), otherwise their initials.
+ */
+export function Avatar({ name, size = 'md', photoUrl }: { name: string; size?: 'sm' | 'md' | 'lg' | 'xl'; photoUrl?: string | null }) {
+  const sizes = { sm: 'h-9 w-9 text-[12px]', md: 'h-10 w-10 text-[13px]', lg: 'h-16 w-16 text-lg', xl: 'h-24 w-24 text-2xl' }
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt=""
+        draggable={false}
+        className={`shrink-0 rounded-full object-cover ring-1 ring-inset ring-mist-200 ${sizes[size]}`}
+      />
+    )
+  }
   return (
     <span className={`grid shrink-0 place-items-center rounded-full bg-mist-100 font-semibold text-navy-800 ring-1 ring-inset ring-mist-200 ${sizes[size]}`}>
       {initials(name)}
@@ -167,7 +201,10 @@ export function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md'
   )
 }
 
-export function IconButton({ icon, label, onClick, dot }: { icon: IconName; label: string; onClick: () => void; dot?: boolean }) {
+/** Round icon button. count shows a number badge (e.g. unread notifications); dot a plain marker. */
+export function IconButton({
+  icon, label, onClick, dot, count,
+}: { icon: IconName; label: string; onClick: () => void; dot?: boolean; count?: number }) {
   return (
     <button
       onClick={onClick}
@@ -175,7 +212,13 @@ export function IconButton({ icon, label, onClick, dot }: { icon: IconName; labe
       className="relative grid h-11 w-11 place-items-center rounded-full text-ink-soft hover:bg-mist-50"
     >
       <Icon name={icon} className="h-[22px] w-[22px]" />
-      {dot && <span className="absolute right-[11px] top-[11px] h-2 w-2 rounded-full bg-accent ring-2 ring-white" />}
+      {count ? (
+        <span className="tnum absolute right-[5px] top-[5px] grid h-[18px] min-w-[18px] place-items-center rounded-full bg-rejected-ink px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-white">
+          {count > 99 ? '99+' : count}
+        </span>
+      ) : (
+        dot && <span className="absolute right-[11px] top-[11px] h-2 w-2 rounded-full bg-accent ring-2 ring-white" />
+      )}
     </button>
   )
 }
@@ -251,11 +294,12 @@ type BadgeStatus = Status | 'Mixed' | 'Active' | 'Inactive' | 'Available' | 'Not
 
 export function StatusBadge({ status }: { status: BadgeStatus }) {
   const styles: Record<BadgeStatus, { box: string; dot: string }> = {
-    Pending: { box: 'bg-warn-soft text-warn', dot: 'bg-warn' },
-    Approved: { box: 'bg-ok-soft text-ok', dot: 'bg-ok' },
+    // Approval statuses use the pastel status colours (index.css), the same on every screen.
+    Pending: { box: 'bg-pending-soft text-pending-ink ring-1 ring-inset ring-pending/40', dot: 'bg-pending' },
+    Approved: { box: 'bg-approved-soft text-approved-ink ring-1 ring-inset ring-approved/40', dot: 'bg-approved' },
     Active: { box: 'bg-ok-soft text-ok', dot: 'bg-ok' },
     Available: { box: 'bg-ok-soft text-ok', dot: 'bg-ok' },
-    Rejected: { box: 'bg-bad-soft text-bad', dot: 'bg-bad' },
+    Rejected: { box: 'bg-rejected-soft text-rejected-ink ring-1 ring-inset ring-rejected/40', dot: 'bg-rejected' },
     Mixed: { box: 'bg-mist-50 text-navy-700 ring-1 ring-inset ring-mist-100', dot: 'bg-navy-700' },
     Inactive: { box: 'bg-mist-50 text-ink-muted', dot: 'bg-ink-muted' },
     'Not issued': { box: 'bg-mist-50 text-ink-muted', dot: 'bg-mist-300' },
@@ -324,11 +368,12 @@ export function Button({
   className?: string
 }) {
   const variants = {
-    primary: 'bg-navy-900 text-white hover:bg-navy-800 active:bg-navy-950',
-    secondary: 'bg-white text-navy-900 ring-1 ring-inset ring-line-strong hover:bg-mist-50',
-    danger: 'bg-white text-bad ring-1 ring-inset ring-bad/25 hover:bg-bad-soft',
-    ghost: 'text-navy-700 hover:bg-mist-50',
-    onDark: 'bg-white text-navy-900 hover:bg-mist-50',
+    // Glossy finishes are defined in index.css (gloss-navy, gloss-light).
+    primary: 'gloss-navy text-white',
+    secondary: 'gloss-light border border-line-strong text-navy-900',
+    danger: 'gloss-light border border-bad/25 text-bad',
+    ghost: 'text-navy-700 hover:bg-mist-50 active:bg-mist-100',
+    onDark: 'gloss-light text-navy-900',
   }
   const sizes = { sm: 'h-10 px-3.5 text-[14px]', md: 'h-11 px-4 text-[14px]', lg: 'h-12 px-5 text-[15px]' }
   return (
@@ -336,7 +381,7 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${sizes[size]} ${variants[variant]} ${className}`}
+      className={`press inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-[background-color,color,box-shadow,transform] duration-150 disabled:cursor-not-allowed disabled:opacity-60 ${sizes[size]} ${variants[variant]} ${className}`}
     >
       {children}
     </button>
@@ -353,7 +398,7 @@ export function Segmented<T extends string>({
   onChange: (id: T) => void
 }) {
   return (
-    <div className="flex rounded-lg bg-mist-100/70 p-1" role="tablist">
+    <div className="flex rounded-xl bg-mist-100/80 p-1 shadow-[inset_0_1px_2px_rgb(15_30_56/0.08)]" role="tablist">
       {options.map((o) => {
         const on = value === o.id
         return (
@@ -362,13 +407,13 @@ export function Segmented<T extends string>({
             role="tab"
             aria-selected={on}
             onClick={() => onChange(o.id)}
-            className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md text-[14px] font-medium transition-colors ${
-              on ? 'bg-white text-navy-900 shadow-card' : 'text-ink-muted'
+            className={`press flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg text-[14px] font-medium transition-[color,transform] duration-150 ${
+              on ? 'tab-on font-semibold text-navy-900' : 'text-ink-muted hover:text-ink-soft'
             }`}
           >
             {o.label}
             {o.count !== undefined && (
-              <span className={`tnum rounded px-1.5 text-[12px] ${on ? 'bg-navy-900 text-white' : 'bg-white/70 text-ink-muted'}`}>{o.count}</span>
+              <span className={`tnum rounded-full px-1.5 text-[12px] ${on ? 'gloss-navy text-white' : 'bg-white/70 text-ink-muted'}`}>{o.count}</span>
             )}
           </button>
         )
@@ -385,8 +430,8 @@ export function FilterChips<T extends string>({ options, value, onChange }: { op
           key={o}
           onClick={() => onChange(o)}
           aria-pressed={value === o}
-          className={`h-9 shrink-0 rounded-full px-3.5 text-[13px] font-medium ring-1 ring-inset transition-colors ${
-            value === o ? 'bg-navy-900 text-white ring-navy-900' : 'bg-white text-ink-soft ring-line-strong hover:bg-mist-50'
+          className={`press h-9 shrink-0 rounded-full px-3.5 text-[13px] font-medium transition-[color,transform] duration-150 ${
+            value === o ? 'gloss-navy text-white' : 'gloss-light border border-line-strong text-ink-soft'
           }`}
         >
           {o}
@@ -451,15 +496,19 @@ export function BottomNav<T extends string>({
               key={item.id}
               onClick={() => onChange(item.id)}
               aria-current={on ? 'page' : undefined}
-              className={`relative flex h-16 flex-col items-center justify-center gap-1 text-[12px] ${
+              className={`relative flex h-16 flex-col items-center justify-center gap-0.5 text-[12px] ${
                 on ? 'font-semibold text-navy-900' : 'font-medium text-ink-muted'
               }`}
             >
-              {on && <span className="absolute top-0 h-0.5 w-8 rounded-b bg-navy-900" />}
-              <span className="relative">
+              {/* The active tab gets a soft pill behind its icon. */}
+              <span
+                className={`relative grid h-8 w-14 place-items-center rounded-full transition-colors duration-200 ${
+                  on ? 'tab-pill-on' : ''
+                }`}
+              >
                 <Icon name={item.icon} className="h-[22px] w-[22px]" />
                 {!!item.badge && (
-                  <span className="tnum absolute -right-2.5 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-navy-900 px-1 text-[10px] font-semibold text-white ring-2 ring-white">
+                  <span className="tnum absolute right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-navy-900 px-1 text-[10px] font-semibold text-white ring-2 ring-white">
                     {item.badge}
                   </span>
                 )}
@@ -473,6 +522,38 @@ export function BottomNav<T extends string>({
   )
 }
 
+/* ---------- Log out ---------- */
+
+/**
+ * The Log out action at the bottom of a profile. One tap signs out: the
+ * session lives only in memory, so nothing needs confirming or cleaning up,
+ * and the sign-in screen then says "You've signed out".
+ */
+export function LogoutButton({ onLogout, subtitle }: { onLogout: () => void; subtitle?: string }) {
+  const [leaving, setLeaving] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (leaving) return
+        setLeaving(true)
+        onLogout()
+      }}
+      disabled={leaving}
+      className="press card-surface group flex min-h-16 w-full items-center gap-3 rounded-2xl border border-bad/15 px-4 py-3 text-left transition-[background-color,border-color,transform] duration-150 hover:border-bad/30 hover:bg-bad-soft/60 active:bg-bad-soft disabled:opacity-70"
+    >
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-bad-soft text-bad ring-1 ring-inset ring-bad/10">
+        {leaving ? <Spinner className="h-4 w-4" /> : <Icon name="logout" className="h-[19px] w-[19px]" />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-semibold text-bad">{leaving ? 'Signing out…' : 'Log out'}</span>
+        {subtitle && <span className="mt-0.5 block truncate text-[13px] text-ink-muted">{subtitle}</span>}
+      </span>
+      <Icon name="chevronRight" className="h-[18px] w-[18px] shrink-0 text-bad/50 transition-transform group-hover:translate-x-0.5" />
+    </button>
+  )
+}
+
 /* ---------- Toast (short message at the bottom) ---------- */
 
 type ToastTone = 'info' | 'success' | 'error'
@@ -483,16 +564,27 @@ export function useToast() {
   const show = useCallback((text: string, tone: ToastTone = 'info') => {
     window.clearTimeout(timer.current)
     setState({ text, tone })
-    timer.current = window.setTimeout(() => setState(null), 2800)
+    // Errors stay a little longer, so there is time to read what went wrong.
+    timer.current = window.setTimeout(() => setState(null), tone === 'error' ? 4500 : 3200)
   }, [])
   useEffect(() => () => window.clearTimeout(timer.current), [])
-  const icon: Record<ToastTone, IconName> = { info: 'info', success: 'checkCircle', error: 'alert' }
-  const iconColor: Record<ToastTone, string> = { info: 'text-mist-300', success: 'text-emerald-300', error: 'text-red-300' }
+  const icon: Record<ToastTone, IconName> = { info: 'info', success: 'check', error: 'alert' }
+  const badge: Record<ToastTone, string> = {
+    info: 'bg-white/10 text-mist-200',
+    success: 'bg-approved text-navy-950',
+    error: 'bg-rejected text-navy-950',
+  }
   const toast = state ? (
-    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-30 mx-auto flex w-full max-w-md justify-center px-5">
-      <div role="status" className="flex items-start gap-2.5 rounded-lg bg-navy-950 px-4 py-3 text-[13px] text-white shadow-raised">
-        <Icon name={icon[state.tone]} className={`mt-px h-4 w-4 shrink-0 ${iconColor[state.tone]}`} />
-        {state.text}
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-30 mx-auto flex w-full max-w-md justify-center px-4">
+      <div
+        key={`${state.tone}:${state.text}`}
+        role={state.tone === 'error' ? 'alert' : 'status'}
+        className="toast-enter flex w-full max-w-sm items-center gap-3 rounded-2xl bg-navy-950/95 px-3.5 py-3 text-[13.5px] leading-snug text-white shadow-raised ring-1 ring-white/10 backdrop-blur"
+      >
+        <span className={`toast-badge grid h-7 w-7 shrink-0 place-items-center rounded-full ${badge[state.tone]}`}>
+          <Icon name={icon[state.tone]} className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">{state.text}</span>
       </div>
     </div>
   ) : null

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -45,6 +46,8 @@ class HrTimesheetServiceTest {
     private LeaveRequestRepository leaveRequests;
     private AuditEntryRepository audit;
     private HrTimesheetService service;
+    private final List<LeaveDays.LeaveDay> leave = new ArrayList<>();
+    private NotificationRepository notificationRows;
     private final List<TimesheetEntry> saved = new ArrayList<>();
     private final List<Employee> people = new ArrayList<>();
 
@@ -54,7 +57,15 @@ class HrTimesheetServiceTest {
         employees = mock(EmployeeRepository.class);
         leaveRequests = mock(LeaveRequestRepository.class);
         audit = mock(AuditEntryRepository.class);
-        service = new HrTimesheetService(entries, employees, leaveRequests, audit, CLOCK);
+        notificationRows = mock(NotificationRepository.class);
+        // Company default calendar (Sat + Sun off, 9 h) with no holidays; no leave unless a test adds some.
+        WorkScheduleRepository schedules = mock(WorkScheduleRepository.class);
+        CompanyHolidayRepository holidays = mock(CompanyHolidayRepository.class);
+        WorkCalendarService calendars = new WorkCalendarService(schedules, holidays, "SATURDAY,SUNDAY", new BigDecimal("9"));
+        service = new HrTimesheetService(entries, employees, leaveRequests, audit,
+                new NotificationService(notificationRows, CLOCK), calendars,
+                (employeeId, from, to) -> leave.stream().filter(l -> !l.date().isBefore(from) && !l.date().isAfter(to)).toList(),
+                CLOCK);
 
         employee(10L, "EMP010", "Ravi", "Kumar");
         employee(20L, "EMP020", "Priya", "Shah");
@@ -94,14 +105,15 @@ class HrTimesheetServiceTest {
 
     private void employee(long id, String code, String first, String last) {
         AppUser account = AppUser.create(code, code.toLowerCase() + "@rightsku.com", "hash", AppUser.ROLE_EMPLOYEE);
+        ReflectionTestUtils.setField(account, "id", id + 100);   // the employee's account: EMP010 -> user 110
         Employee e = Employee.create(account, code, new Employee.EmployeeDetails(first, last, null, null, null, null));
         ReflectionTestUtils.setField(e, "id", id);
         people.add(e);
         when(employees.findById(id)).thenReturn(Optional.of(e));
-        when(employees.findAllById(any())).thenAnswer(call -> {
+        doAnswer(call -> {
             Collection<Long> ids = call.getArgument(0);
             return people.stream().filter(p -> ids.contains(p.getId())).toList();
-        });
+        }).when(employees).findAllById(any());
     }
 
     private void entry(long employeeId, String date, String hours) {
@@ -167,6 +179,34 @@ class HrTimesheetServiceTest {
     }
 
     @Test
+    void theEmployeeIsNotifiedOfEachDecisionWithHrsNote() {
+        entry(10L, "2026-10-05", "9");
+        entry(20L, "2026-10-12", "8");
+
+        service.review(review(10L, "2026-10-05", "APPROVE", null), HR);
+        service.review(review(20L, "2026-10-12", "REJECT", "Wrong project code"), HR);
+
+        ArgumentCaptor<Notification> sent = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRows, org.mockito.Mockito.times(2)).save(sent.capture());
+        Notification approved = sent.getAllValues().get(0);
+        assertThat(approved.getUserId()).as("Ravi's own account").isEqualTo(110L);
+        assertThat(approved.getType()).isEqualTo("TIMESHEET_APPROVED");
+        assertThat(approved.getMessage()).isEqualTo("Your timesheet for the week of 5 Oct 2026 was approved.");
+        Notification rejected = sent.getAllValues().get(1);
+        assertThat(rejected.getUserId()).as("Priya's own account").isEqualTo(120L);
+        assertThat(rejected.getType()).isEqualTo("TIMESHEET_REJECTED");
+        assertThat(rejected.getMessage()).endsWith("was rejected. HR note: Wrong project code");
+        assertThat(rejected.getReadAt()).isNull();
+    }
+
+    @Test
+    void aRefusedReviewNotifiesNobody() {
+        entry(10L, "2026-10-05", "9");
+        assertApiError(catchThrowable(() -> service.review(review(10L, "2026-10-05", "MAYBE", null), HR)), HttpStatus.BAD_REQUEST, "decision");
+        verify(notificationRows, never()).save(any());
+    }
+
+    @Test
     void rejectingAWeekKeepsTheNoteForTheEmployee() {
         entry(20L, "2026-10-12", "8");
 
@@ -215,5 +255,21 @@ class HrTimesheetServiceTest {
         verify(entries).countWeeksByStatus();
         verify(leaveRequests).countByStatusGrouped();
         verify(entries, never()).findByStatusAndWorkDateGreaterThanEqualOrderByWorkDateDesc(eq("PENDING"), any());
+    }
+
+    @Test
+    void hrSeesTheZeroHourLopDaysOfAWeekBeforeDeciding() {
+        // Mon-Thu worked; Friday 9 Oct left at 0 hours (no paid leave left); Thursday 8 has leave waiting.
+        entry(10L, "2026-10-05", "9");
+        entry(10L, "2026-10-06", "9");
+        entry(10L, "2026-10-07", "9");
+        leave.add(new LeaveDays.LeaveDay(LocalDate.parse("2026-10-08"), LeaveDays.Portion.FULL_DAY, LeaveDays.Status.PENDING));
+
+        HrTimesheetWeekResponse week = service.weeks("PENDING").get(0);
+
+        assertThat(week.zeroHourDays()).as("only Friday; Thursday is covered by leave, weekend days are offs")
+                .containsExactly(LocalDate.parse("2026-10-09"));
+        HrTimesheetWeekResponse decided = service.review(review(10L, "2026-10-05", "APPROVE", null), HR);
+        assertThat(decided.zeroHourDays()).containsExactly(LocalDate.parse("2026-10-09"));
     }
 }

@@ -1,4 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { onNotificationTap } from './lib/systemNotifications'
+import { listenForAndroidBack } from './lib/androidBack'
+import { setStatusBarTheme } from './lib/statusBar'
 import Login from './screens/Login'
 import EmployeeApp from './screens/employee/EmployeeApp'
 import HrApp from './screens/hr/HrApp'
@@ -11,6 +14,15 @@ export default function App() {
   // or logging out clears it, and the user signs in again.
   const [session, setSession] = useState<AuthSession | null>(null)
   const [signInNotice, setSignInNotice] = useState<string | null>(null)
+
+  // Taps on phone notifications (open a downloaded file, or the inbox).
+  useEffect(() => onNotificationTap(), [])
+
+  // Android back gesture and button: close the top pop-up, or go back a screen.
+  useEffect(() => listenForAndroidBack(), [])
+
+  // Sign-in and HR are always light: dark status bar icons. The employee app sets its own.
+  useEffect(() => setStatusBarTheme('light'), [])
 
   // Stable callback: the backend rejected the token (expired, deactivated or role changed).
   const sessionExpired = useCallback(() => {
@@ -30,7 +42,12 @@ export default function App() {
     )
   }
 
-  const logout = () => setSession(null)
+  // Signing out drops the session, and with it the token: it was only ever in
+  // this React state, never in storage, so nothing else needs clearing.
+  const logout = () => {
+    setSession(null)
+    setSignInNotice('You’ve signed out.')
+  }
 
   // Temporary password from HR: the only thing this session may do is set a
   // new password. Afterwards the session has ended and the user signs in again.

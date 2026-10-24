@@ -6,6 +6,11 @@ build/
 # Android build files (created later by Capacitor)
 frontend/android/app/build/
 .gradle/
+
+# Android files copied in by "npx cap sync" (re-created from dist/ and capacitor.config.json)
+frontend/android/app/src/main/assets/public/
+frontend/android/app/src/main/assets/capacitor.config.json
+frontend/android/app/src/main/assets/capacitor.plugins.json
 local.properties
 *.keystore
 *.jks
@@ -70,3 +75,6 @@ backend/target/
 
 # Local application configuration overrides
 backend/src/main/resources/application-local.properties
+
+# Android release signing (keystore passwords) - never commit
+keystore.properties

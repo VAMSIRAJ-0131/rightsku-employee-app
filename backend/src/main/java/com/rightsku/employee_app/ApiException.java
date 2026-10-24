@@ -31,6 +31,11 @@ public class ApiException extends RuntimeException {
         return new ApiException(HttpStatus.BAD_REQUEST, field, message);
     }
 
+    /** 503: the feature needs server setup that is missing (for example email for password reset). */
+    public static ApiException unavailable(String message) {
+        return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, null, message);
+    }
+
     public HttpStatus getStatus() {
         return status;
     }

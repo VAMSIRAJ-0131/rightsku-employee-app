@@ -152,7 +152,7 @@ export default function LeaveScreen({
                 value={values.reason}
                 onChange={(e) => set('reason', e.target.value)}
                 aria-invalid={!!errors.reason}
-                className={`mt-1.5 w-full rounded-lg border bg-white px-4 py-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${errors.reason ? 'border-bad/50' : 'border-line-strong'}`}
+                className={`mt-1.5 w-full rounded-xl border bg-white px-4 py-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${errors.reason ? 'border-bad/50' : 'border-line-strong'}`}
               />
               {errors.reason && <span className="mt-1.5 block text-[12px] text-bad">{errors.reason}</span>}
             </label>
@@ -237,7 +237,7 @@ function DateField({
         min={min}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={!!error}
-        className={`tnum mt-1.5 h-11 w-full rounded-lg border bg-white px-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${error ? 'border-bad/50' : 'border-line-strong'}`}
+        className={`tnum mt-1.5 h-11 w-full rounded-xl border bg-white px-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${error ? 'border-bad/50' : 'border-line-strong'}`}
       />
       {error && <span className="mt-1.5 block text-[12px] text-bad">{error}</span>}
     </label>

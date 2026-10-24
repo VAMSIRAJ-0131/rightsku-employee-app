@@ -23,6 +23,12 @@ import java.util.List;
  *       never added to it.</li>
  *   <li>canSubmit is false with submitBlockedReason saying why (for example
  *       hours still missing, or the week not finished yet).</li>
+ *   <li>Empty working days (see WeekSubmission): pendingLeave says a leave
+ *       request for the day is waiting for HR; emptyMeaning is LOP,
+ *       PENDING_LEAVE or NEEDS_LEAVE for a working day with no hours.
+ *       target.requiredHours is the total that must be entered exactly (the
+ *       expected hours minus empty LOP and pending-leave days), and
+ *       paidLeaveAvailable says whether an empty day would need leave.</li>
  * </ul>
  */
 public record WeekTimesheetResponse(
@@ -37,7 +43,8 @@ public record WeekTimesheetResponse(
     Target target,
     LocalDate submitOpensOn,
     boolean canSubmit,
-    String submitBlockedReason
+    String submitBlockedReason,
+    boolean paidLeaveAvailable
 ) {
 
     public record Day(
@@ -51,7 +58,9 @@ public record WeekTimesheetResponse(
         BigDecimal targetHours,
         BigDecimal hours,
         String entryStatus,
-        boolean editable
+        boolean editable,
+        boolean pendingLeave,
+        String emptyMeaning
     ) {
     }
 
@@ -61,7 +70,9 @@ public record WeekTimesheetResponse(
         BigDecimal leaveHours,
         BigDecimal expectedHours,
         BigDecimal enteredHours,
-        BigDecimal remainingHours
+        BigDecimal remainingHours,
+        BigDecimal requiredHours,
+        long lopDays
     ) {
     }
 }

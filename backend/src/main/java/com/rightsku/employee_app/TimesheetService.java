@@ -34,11 +34,13 @@ import org.springframework.transaction.annotation.Transactional;
  *       force on that date), company holidays, full days of approved leave
  *       and days before the joining date are refused.</li>
  *   <li>Each day takes {@value #MIN_HOURS_PER_DAY} to {@value #MAX_HOURS_PER_DAY}
- *       hours in steps of 0.25 (15 minutes). Empty days are allowed as long as
- *       the week reaches its target.</li>
- *   <li>Submitting opens on the week's last working day and needs at least
- *       the week's target ({@link WeekTarget}): 45 hours for five 9-hour days,
- *       less for holidays and approved leave.</li>
+ *       hours in steps of 0.25 (15 minutes).</li>
+ *   <li>Submitting opens on the week's last working day. The hours must
+ *       exactly match the week's target ({@link WeekTarget}: 45 hours for five
+ *       9-hour days, less for holidays and approved leave). An empty working
+ *       day is allowed only while its leave is waiting for HR, or as LOP when
+ *       no paid leave is left; with paid leave left, the employee must apply
+ *       for leave or enter hours ({@link WeekSubmission}).</li>
  *   <li>Days submitted one at a time (the older one-day submit, still
  *       available for app versions installed earlier) count towards the week
  *       and can't be changed. When every working day of a week was submitted
@@ -71,6 +73,7 @@ public class TimesheetService {
     private final EmployeeRepository employees;
     private final WorkCalendarService calendarService;
     private final LeaveDays leaveDays;
+    private final PaidLeaveCheck paidLeave;
     private final Clock clock;
 
     public TimesheetService(
@@ -79,12 +82,14 @@ public class TimesheetService {
             EmployeeRepository employees,
             WorkCalendarService calendarService,
             LeaveDays leaveDays,
+            PaidLeaveCheck paidLeave,
             Clock clock) {
         this.entries = entries;
         this.weeks = weeks;
         this.employees = employees;
         this.calendarService = calendarService;
         this.leaveDays = leaveDays;
+        this.paidLeave = paidLeave;
         this.clock = clock;
     }
 
@@ -171,20 +176,21 @@ public class TimesheetService {
             throw ApiException.invalid("target", "You can submit this week from " + DAY.format(opensOn)
                     + ", its last working day. Save it as a draft until then.");
         }
-        BigDecimal entered = state.lockedHours().add(sum(hours.values()));
-        BigDecimal expected = state.target.expectedHours();
-        if (entered.compareTo(expected) < 0) {
-            throw ApiException.invalid("target", "Enter " + plain(expected.subtract(entered))
-                    + " more hours to reach this week's " + plain(expected) + " hours.");
-        }
-        if (hours.isEmpty() && state.entries.isEmpty()) {
+        if (hours.values().stream().noneMatch(h -> h.signum() > 0) && state.entries.isEmpty()) {
             throw ApiException.invalid("target", "Enter hours for at least one working day.");
+        }
+        WeekSubmission check = state.submission(hours, paidLeave.hasPaidLeaveAvailable(me.getId()));
+        if (check.problem() != null) {
+            throw ApiException.invalid("target", check.problem());
         }
 
         TimesheetWeek week = state.week != null ? state.week : TimesheetWeek.start(me.getId(), state.weekStart);
         week.markSubmitted(description, clock.instant());
         try {
             for (Map.Entry<LocalDate, BigDecimal> day : hours.entrySet()) {
+                if (day.getValue().signum() == 0) {
+                    continue;   // a day not worked has no entry: it stays empty (LOP or leave waiting)
+                }
                 entries.saveAndFlush(TimesheetEntry.submit(me.getId(), day.getKey(), day.getValue(), description));
             }
         } catch (DataIntegrityViolationException ex) {
@@ -274,14 +280,20 @@ public class TimesheetService {
         }
 
         WorkCalendar calendar = calendarService.calendarFor(me.getId(), weekStart, weekEnd);
-        WeekTarget target = WeekTarget.of(calendar.days(weekStart, weekEnd), me.getJoiningDate(),
-                leaveDays.leaveBetween(me.getId(), weekStart, weekEnd));
+        List<LeaveDays.LeaveDay> leave = leaveDays.leaveBetween(me.getId(), weekStart, weekEnd);
+        WeekTarget target = WeekTarget.of(calendar.days(weekStart, weekEnd), me.getJoiningDate(), leave);
+        Set<LocalDate> pendingLeave = new HashSet<>();
+        for (LeaveDays.LeaveDay l : leave) {
+            if (l.status() == LeaveDays.Status.PENDING) {
+                pendingLeave.add(l.date());
+            }
+        }
         TimesheetWeek week = (forUpdate
                 ? weeks.findForUpdateByEmployeeIdAndWeekStart(me.getId(), weekStart)
                 : weeks.findByEmployeeIdAndWeekStart(me.getId(), weekStart)).orElse(null);
         List<TimesheetEntry> submitted = entries.findByEmployeeIdAndWorkDateBetweenOrderByWorkDateDesc(
                 me.getId(), weekStart, weekEnd);
-        return new WeekState(weekStart, target, week, submitted);
+        return new WeekState(weekStart, target, week, submitted, pendingLeave, me.getId());
     }
 
     /** Checks each day sent; returns the hours to keep (days without hours are left out). */
@@ -312,6 +324,10 @@ public class TimesheetService {
             WeekTarget.Day plan = state.target.day(date);
             if (!plan.takesHours()) {
                 throw ApiException.invalid(field, whyNoHours(plan));
+            }
+            if (day.hours().signum() == 0) {
+                result.put(date, BigDecimal.ZERO.setScale(2));   // "did not work": LOP or leave, see WeekSubmission
+                continue;
             }
             if (!validHours(day.hours())) {
                 throw ApiException.invalid(field, HOURS_MESSAGE);
@@ -394,17 +410,31 @@ public class TimesheetService {
 
     /* ---------- One week, loaded ---------- */
 
-    private static final class WeekState {
+    private final class WeekState {
         final LocalDate weekStart;
         final WeekTarget target;
         TimesheetWeek week;
         List<TimesheetEntry> entries;
+        final Set<LocalDate> pendingLeave;
+        final long employeeId;
 
-        WeekState(LocalDate weekStart, WeekTarget target, TimesheetWeek week, List<TimesheetEntry> entries) {
+        WeekState(LocalDate weekStart, WeekTarget target, TimesheetWeek week, List<TimesheetEntry> entries,
+                Set<LocalDate> pendingLeave, long employeeId) {
             this.weekStart = weekStart;
             this.target = target;
             this.week = week;
             this.entries = entries;
+            this.pendingLeave = pendingLeave;
+            this.employeeId = employeeId;
+        }
+
+        /** The submission rules for these hours (see WeekSubmission). */
+        WeekSubmission submission(Map<LocalDate, BigDecimal> hours, boolean paidLeaveAvailable) {
+            Set<LocalDate> submittedDates = new HashSet<>();
+            for (TimesheetEntry e : entries) {
+                submittedDates.add(e.getWorkDate());
+            }
+            return WeekSubmission.check(target, hours, submittedDates, lockedHours(), pendingLeave, paidLeaveAvailable);
         }
 
         TimesheetEntry submittedOn(LocalDate date) {
@@ -451,25 +481,46 @@ public class TimesheetService {
                 byDate.put(e.getWorkDate(), e);
             }
 
+            Map<LocalDate, BigDecimal> draftHours = new HashMap<>();
+            for (WeekTarget.Day d : target.days()) {
+                if (!submitted && byDate.get(d.date()) == null && d.takesHours() && draft.containsKey(d.date())) {
+                    draftHours.put(d.date(), draft.get(d.date()));
+                }
+            }
+            // After submitting, an empty day is LOP or pending leave: submitting
+            // was only possible that way, whatever the leave balance is now.
+            boolean paidLeaveAvailable = !submitted && paidLeave.hasPaidLeaveAvailable(employeeId);
+            Map<LocalDate, BigDecimal> checked = draftHours;
+            if (submitted) {
+                // Submitting needed every day filled, so a day without an entry was sent as 0 hours.
+                checked = new HashMap<>(draftHours);
+                for (WeekTarget.Day d : target.days()) {
+                    if (d.takesHours() && byDate.get(d.date()) == null) {
+                        checked.put(d.date(), BigDecimal.ZERO.setScale(2));
+                    }
+                }
+            }
+            WeekSubmission check = submission(checked, paidLeaveAvailable);
+            Map<LocalDate, WeekSubmission.Empty> emptyMeaning = new HashMap<>();
+            for (WeekSubmission.EmptyDay e : check.emptyDays()) {
+                emptyMeaning.put(e.date(), e.meaning());
+            }
+
             List<WeekTimesheetResponse.Day> days = new ArrayList<>();
-            BigDecimal entered = lockedHours();
+            BigDecimal entered = check.enteredHours();
             for (WeekTarget.Day d : target.days()) {
                 TimesheetEntry entry = byDate.get(d.date());
                 boolean editable = !submitted && entry == null && d.takesHours();
-                BigDecimal hours = null;
-                if (entry != null) {
-                    hours = entry.getHours();
-                } else if (editable && draft.containsKey(d.date())) {
-                    hours = draft.get(d.date());
-                    entered = entered.add(hours);
-                }
+                BigDecimal hours = entry != null ? entry.getHours() : draftHours.get(d.date());
+                WeekSubmission.Empty empty = emptyMeaning.get(d.date());
                 days.add(new WeekTimesheetResponse.Day(d.date(), d.kind().name(), d.weeklyOff(), d.holidayName(),
                         d.beforeJoining(), d.leave() == null ? null : d.leave().name(), d.scheduledHours(),
-                        d.targetHours(), hours, entry == null ? null : entry.getStatus(), editable));
+                        d.targetHours(), hours, entry == null ? null : entry.getStatus(), editable,
+                        pendingLeave.contains(d.date()), empty == null ? null : empty.name()));
             }
 
             WeekTarget.Totals t = target.totals();
-            BigDecimal remaining = t.expectedHours().subtract(entered).max(BigDecimal.ZERO.setScale(2));
+            BigDecimal remaining = check.requiredHours().subtract(entered).max(BigDecimal.ZERO.setScale(2));
             LocalDate opensOn = target.lastWorkingDay();
             boolean allEarlier = allDaysSubmittedEarlier();
             String blocked = null;
@@ -481,9 +532,8 @@ public class TimesheetService {
                 blocked = "This week has no working days to submit.";
             } else if (today.isBefore(opensOn)) {
                 blocked = "You can submit this week from " + DAY.format(opensOn) + ", its last working day.";
-            } else if (remaining.signum() > 0) {
-                blocked = "Enter " + plain(remaining) + " more hours to reach this week's "
-                        + plain(t.expectedHours()) + " hours.";
+            } else if (check.problem() != null) {
+                blocked = check.problem();
             }
             String status = submitted ? TimesheetWeek.STATUS_SUBMITTED
                     : allEarlier ? ALREADY_SUBMITTED
@@ -494,8 +544,8 @@ public class TimesheetService {
                     week == null ? null : week.getSubmittedAt(),
                     days,
                     new WeekTimesheetResponse.Target(t.scheduledHours(), t.holidayHours(), t.leaveHours(),
-                            t.expectedHours(), entered, remaining),
-                    opensOn, blocked == null, blocked);
+                            t.expectedHours(), entered, remaining, check.requiredHours(), check.lopDays()),
+                    opensOn, blocked == null, blocked, paidLeaveAvailable);
         }
     }
 }

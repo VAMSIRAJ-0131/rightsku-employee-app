@@ -178,3 +178,50 @@ export function updateEmployee(token: string, id: number, values: EmployeeFormVa
 export function setEmployeeActive(token: string, id: number, active: boolean) {
   return apiRequest<EmployeeRecord>(`${BASE}/${id}/${active ? 'activate' : 'deactivate'}`, { token, method: 'POST' })
 }
+
+/* ---------- HR resets a forgotten password ---------- */
+
+export interface ResetPasswordValues {
+  temporaryPassword: string
+  confirmPassword: string
+}
+
+/** Same rules as the server (PasswordPolicy, 12+ characters for an HR-chosen password). */
+export function validateResetPassword(values: ResetPasswordValues): Partial<Record<keyof ResetPasswordValues, string>> {
+  const errors: Partial<Record<keyof ResetPasswordValues, string>> = {}
+  const pw = values.temporaryPassword
+  if (!pw) errors.temporaryPassword = 'Enter a temporary password.'
+  else if (pw !== pw.trim()) errors.temporaryPassword = 'Don’t start or end the password with spaces.'
+  else if (pw.length < MIN_PASSWORD_LENGTH) errors.temporaryPassword = `Use at least ${MIN_PASSWORD_LENGTH} characters.`
+  else if (new TextEncoder().encode(pw).length > 72) errors.temporaryPassword = 'This password is too long.'
+  if (!values.confirmPassword) errors.confirmPassword = 'Enter the temporary password again.'
+  else if (values.confirmPassword !== pw) errors.confirmPassword = 'The two passwords don’t match.'
+  return errors
+}
+
+/** 204 on success; the password is never sent back. */
+export function resetEmployeePassword(token: string, id: number, values: ResetPasswordValues) {
+  return apiRequest<null>(`${BASE}/${id}/reset-password`, { token, method: 'POST', body: values })
+}
+
+// Letters and digits that can't be confused when read aloud or typed (no 0/O, 1/l/I).
+const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+
+/**
+ * A strong random temporary password, for example "Kq7m-Xt4P-wR9b" (14
+ * characters, about 71 bits of randomness). Uses the browser's secure random
+ * generator; it exists only on this screen until HR saves it.
+ */
+export function generateTemporaryPassword(random: (bytes: Uint8Array) => Uint8Array = (b) => crypto.getRandomValues(b)): string {
+  const groups: string[] = []
+  for (let g = 0; g < 3; g++) {
+    let group = ''
+    while (group.length < 4) {
+      const [byte] = random(new Uint8Array(1))
+      // Rejection sampling keeps every character equally likely.
+      if (byte < 256 - (256 % PASSWORD_ALPHABET.length)) group += PASSWORD_ALPHABET[byte % PASSWORD_ALPHABET.length]
+    }
+    groups.push(group)
+  }
+  return groups.join('-')
+}

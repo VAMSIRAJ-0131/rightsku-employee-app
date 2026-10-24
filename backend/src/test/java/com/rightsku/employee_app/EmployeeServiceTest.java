@@ -69,6 +69,81 @@ class EmployeeServiceTest {
         return employee;
     }
 
+    /* ---------- Own profile ---------- */
+
+    @Test
+    void anEmployeeGetsTheirOwnRecordByAccountId() {
+        Employee ravi = existing(10L, "EMP010", "ravi@rightsku.com", true);
+        when(employees.findByUser_Id(110L)).thenReturn(Optional.of(ravi));
+
+        EmployeeResponse mine = service.mine(110L);
+
+        assertThat(mine.id()).isEqualTo(10L);
+        assertThat(mine.employeeCode()).isEqualTo("EMP010");
+        assertThat(mine.firstName()).isEqualTo("Old");
+        assertThat(mine.lastName()).isEqualTo("Name");
+        assertThat(mine.email()).isEqualTo("ravi@rightsku.com");
+    }
+
+    @Test
+    void anAccountWithoutAnEmployeeRecordIsNotFound() {
+        when(employees.findByUser_Id(999L)).thenReturn(Optional.empty());
+
+        assertApiError(org.assertj.core.api.Assertions.catchThrowable(() -> service.mine(999L)), HttpStatus.NOT_FOUND, null);
+    }
+
+    /* ---------- HR resets a forgotten password ---------- */
+
+    @Test
+    void hrResetSetsAHashedTemporaryPasswordEndsSessionsAndForcesAChange() {
+        Employee ravi = existing(10L, "EMP010", "ravi@rightsku.com", true);
+        AppUser account = ravi.getUser();
+        int sessionBefore = account.getSessionVersion();
+
+        service.resetPassword(10L, new HrPasswordResetRequest(PASSWORD, PASSWORD), HR_ACTOR);
+
+        assertThat(account.getPasswordHash()).isNotEqualTo(PASSWORD).startsWith("$2");
+        assertThat(encoder.matches(PASSWORD, account.getPasswordHash())).isTrue();
+        assertThat(account.isMustChangePassword()).as("must choose own password at next sign-in").isTrue();
+        assertThat(account.getSessionVersion()).as("old sessions end").isEqualTo(sessionBefore + 1);
+        verify(users).saveAndFlush(account);
+        ArgumentCaptor<AuditEntry> logged = ArgumentCaptor.forClass(AuditEntry.class);
+        verify(audit).save(logged.capture());
+        assertThat(logged.getValue().getAction()).isEqualTo("PASSWORD_RESET_BY_HR");
+        assertThat(logged.getValue().getActorUserId()).isEqualTo(HR_ACTOR);
+        assertThat(logged.getValue().getDetails()).as("the password is never logged").isNull();
+    }
+
+    @Test
+    void hrResetFollowsThePasswordRulesAndBothFieldsMustMatch() {
+        Employee ravi = existing(10L, "EMP010", "ravi@rightsku.com", true);
+        String before = ravi.getUser().getPasswordHash();
+
+        assertApiError(org.assertj.core.api.Assertions.catchThrowable(() ->
+                service.resetPassword(10L, new HrPasswordResetRequest("short", "short"), HR_ACTOR)),
+                HttpStatus.BAD_REQUEST, "temporaryPassword");
+        assertApiError(org.assertj.core.api.Assertions.catchThrowable(() ->
+                service.resetPassword(10L, new HrPasswordResetRequest(PASSWORD, PASSWORD + "x"), HR_ACTOR)),
+                HttpStatus.BAD_REQUEST, "confirmPassword");
+        assertThat(ravi.getUser().getPasswordHash()).isEqualTo(before);
+        verify(users, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void inactiveOrMissingEmployeesCannotBeReset() {
+        Employee gone = existing(11L, "EMP011", "gone@rightsku.com", false);
+        String before = gone.getUser().getPasswordHash();
+
+        assertApiError(org.assertj.core.api.Assertions.catchThrowable(() ->
+                service.resetPassword(11L, new HrPasswordResetRequest(PASSWORD, PASSWORD), HR_ACTOR)),
+                HttpStatus.CONFLICT, null);
+        assertApiError(org.assertj.core.api.Assertions.catchThrowable(() ->
+                service.resetPassword(99L, new HrPasswordResetRequest(PASSWORD, PASSWORD), HR_ACTOR)),
+                HttpStatus.NOT_FOUND, null);
+        assertThat(gone.getUser().getPasswordHash()).isEqualTo(before);
+        verify(audit, never()).save(any());
+    }
+
     /* ---------- Create ---------- */
 
     @Test

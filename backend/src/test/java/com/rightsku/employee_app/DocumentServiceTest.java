@@ -35,6 +35,7 @@ class DocumentServiceTest {
     private EmployeeRepository employees;
     private AuditEntryRepository audit;
     private DocumentService service;
+    private NotificationRepository notificationRows;
 
     private Employee ravi;   // employee id 10, user id 110
     private Employee priya;  // employee id 20, user id 120
@@ -45,7 +46,9 @@ class DocumentServiceTest {
         files = mock(EmployeeDocumentFileRepository.class);
         employees = mock(EmployeeRepository.class);
         audit = mock(AuditEntryRepository.class);
-        service = new DocumentService(documents, files, employees, audit, 1024);
+        notificationRows = mock(NotificationRepository.class);
+        service = new DocumentService(documents, files, employees, audit,
+                new NotificationService(notificationRows, java.time.Clock.systemUTC()), 1024);
 
         ravi = employee(10L, 110L, "EMP010", "Ravi");
         priya = employee(20L, 120L, "EMP020", "Priya");
@@ -115,6 +118,35 @@ class DocumentServiceTest {
         verify(audit).save(entry.capture());
         assertThat(entry.getValue().getAction()).isEqualTo("DOCUMENT_UPLOADED");
         assertThat(entry.getValue().getActorUserId()).isEqualTo(HR);
+    }
+
+    @Test
+    void publishingAPayslipNotifiesOnlyItsEmployee() {
+        service.upload(10L, "PAYSLIP", "2026-09", "", file("sept.pdf", PDF), HR);
+
+        ArgumentCaptor<Notification> sent = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRows).save(sent.capture());
+        assertThat(sent.getValue().getUserId()).as("Ravi's own account").isEqualTo(110L);
+        assertThat(sent.getValue().getType()).isEqualTo("PAYSLIP_PUBLISHED");
+        assertThat(sent.getValue().getTitle()).isEqualTo("Payslip published");
+        assertThat(sent.getValue().getMessage()).isEqualTo("Payslip - September 2026 is ready to download.");
+    }
+
+    @Test
+    void aCorrectedFileNotifiesButARenameAndARefusedUploadDoNot() {
+        stored(7L, priya, DocumentType.OFFER_LETTER, null, PDF);
+
+        service.update(7L, "Offer - Priya", null, HR);
+        verify(notificationRows, never()).save(any());
+        catchThrowable(() -> service.upload(10L, "SALARY", "2026-09", null, file("a.pdf", PDF), HR));
+        verify(notificationRows, never()).save(any());
+
+        service.update(7L, null, file("new.pdf", PDF), HR);
+        ArgumentCaptor<Notification> sent = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRows).save(sent.capture());
+        assertThat(sent.getValue().getUserId()).isEqualTo(120L);
+        assertThat(sent.getValue().getType()).isEqualTo("DOCUMENT_PUBLISHED");
+        assertThat(sent.getValue().getTitle()).isEqualTo("Document updated");
     }
 
     @Test

@@ -4,7 +4,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '../../components/Icons'
 import { Button, Card, EmptyState, List, ListRow, Notice, Section, Spinner, TopBar } from '../../components/ui'
-import { saveFile, type ApiError } from '../../lib/api'
+import type { ApiError } from '../../lib/api'
+import { saveDownloadedFile, savedMessage } from '../../lib/fileSave'
+import { notifyDownloaded } from '../../lib/systemNotifications'
 import {
   DOCUMENT_TYPES, downloadHrDocument, formatSize, listRecentDocuments,
   type ApiDocumentType, type DocumentRecord,
@@ -81,8 +83,15 @@ export default function HrDocumentsScreen({
 
   async function download(doc: DocumentRecord) {
     const result = await downloadHrDocument(token, doc)
-    if (result.ok) saveFile(result.data)
-    else onToast(handleError(result.error).message, 'error')
+    if (!result.ok) {
+      onToast(handleError(result.error).message, 'error')
+      return
+    }
+    const saved = await saveDownloadedFile(result.data, doc.title)
+    if (saved.ok) {
+      onToast(savedMessage(doc.title, saved), 'success')
+      if (saved.method === 'saved') void notifyDownloaded(saved, doc.title)
+    } else onToast(saved.message, saved.cancelled ? 'info' : 'error')
   }
 
   return (

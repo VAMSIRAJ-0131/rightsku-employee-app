@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { backStack } from '../../lib/backStack'
 import { Icon, type IconName } from '../../components/Icons'
 import {
   Avatar, BottomNav, CenteredHeader, Button, Card, EmptyState, IconTile, List, ListRow,
@@ -16,9 +17,10 @@ import ApprovalsScreen, { type ApprovalView } from './ApprovalsScreen'
 import EmployeesScreen from './EmployeesScreen'
 import HolidaysScreen from './HolidaysScreen'
 import HrDocumentsScreen from './HrDocumentsScreen'
+import SalarySummaryScreen from './SalarySummaryScreen'
 
 type Tab = 'home' | 'approvals' | 'employees' | 'documents'
-type SubScreen = 'roles' | 'reports' | 'audit' | 'holidays' | null
+type SubScreen = 'roles' | 'reports' | 'audit' | 'holidays' | 'salary' | null
 
 export default function HrApp({
   user,
@@ -97,6 +99,16 @@ export default function HrApp({
     // Fresh counts and lists whenever HR comes back to Home or Approvals.
     if (next === 'home' || next === 'approvals') setApprovalsVersion((v) => v + 1)
   }
+  // Android Back on a main tab with no back arrow returns to Home (screens with a
+  // back arrow handle it themselves, above this). On Home the app goes to the background.
+  const backToHome = useRef<() => boolean>(() => false)
+  backToHome.current = () => {
+    if (tab === 'home' && sub === null) return false
+    goTab('home')
+    return true
+  }
+  useEffect(() => backStack.push(() => backToHome.current(), 'app'), [])
+
   function openApprovals(view: ApprovalView) {
     setApprovalView(view)
     goTab('approvals')
@@ -104,7 +116,9 @@ export default function HrApp({
   }
 
   let screen: ReactNode
-  if (sub === 'holidays') {
+  if (sub === 'salary') {
+    screen = <SalarySummaryScreen token={token} onBack={() => setSub(null)} onToast={show} onError={handleError} />
+  } else if (sub === 'holidays') {
     screen = (
       <HolidaysScreen token={token} onBack={() => setSub(null)} onToast={show} onSessionExpired={onSessionExpired} />
     )
@@ -231,7 +245,7 @@ export default function HrApp({
               type="button"
               onClick={onLogout}
               aria-label="Log out"
-              className="inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2 text-[14px] font-semibold text-bad hover:bg-bad-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-700"
+              className="press inline-flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-full bg-bad-soft/70 px-3 text-[13px] font-semibold text-bad ring-1 ring-inset ring-bad/15 transition-[background-color,transform] duration-150 hover:bg-bad-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-700"
             >
               <Icon name="logout" className="h-[18px] w-[18px] shrink-0" />
               <span className="hidden min-[360px]:inline">Log out</span>
@@ -306,6 +320,7 @@ export default function HrApp({
           <List>
             <AdminRow icon="users" title="Employees" meta={`${activeCount} active`} onClick={() => goTab('employees')} />
             <AdminRow icon="upload" title="Documents" meta="Upload and assign" onClick={() => goTab('documents')} />
+            <AdminRow icon="wallet" title="Salary summary" meta="Monthly payroll days" onClick={() => setSub('salary')} />
             <AdminRow icon="calendar" title="Holiday calendar" meta="Company holidays" onClick={() => setSub('holidays')} />
             <AdminRow icon="shield" title="Roles and access" meta={`${employees.length} accounts`} onClick={() => setSub('roles')} />
             <AdminRow icon="chart" title="Reports" meta="Summary" onClick={() => setSub('reports')} />
@@ -349,7 +364,10 @@ export default function HrApp({
 
   return (
     <Page>
-      {screen}
+      {/* Keyed by tab, so each newly opened tab fades in once. */}
+      <div key={tab} className="screen-enter">
+        {screen}
+      </div>
       <BottomNav
         items={[
           { id: 'home', label: 'Home', icon: 'home' },

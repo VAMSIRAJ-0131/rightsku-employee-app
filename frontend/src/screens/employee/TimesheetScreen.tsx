@@ -8,14 +8,14 @@
 // The server works out the week's target and enforces every rule.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icons'
-import { Button, Card, Notice, ProgressBar, Section, Spinner, StatusBadge, TopBar } from '../../components/ui'
+import { Button, Card, Notice, ProgressBar, Section, Spinner, StatusBadge, TopBar, useBackHandler } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import { formatShortDate, monthLabel, toIsoDate } from '../../lib/format'
 import { MAX_DAYS_BACK, MAX_HOURS_PER_DAY, MIN_HOURS_PER_DAY, weekStartOf } from '../../lib/workCalendar'
 import {
   CONFIRM_SUBMIT_MESSAGE, createWeekActions, formatDayLong, formatHours, getMyWeek, saveWeekDraft, startingHours,
   submitMyWeek, weekTotals,
-  type WeekActionResult, type WeekData, type WeekDayData, type WeekFormErrors,
+  type EmptyMeaning, type WeekActionResult, type WeekData, type WeekDayData, type WeekFormErrors, type WeekTotals,
 } from '../../lib/timesheetWeek'
 
 const NO_ERRORS: WeekFormErrors = { hours: {} }
@@ -224,7 +224,7 @@ export default function TimesheetScreen({
         </Section>
       ) : (
         <>
-          {totals && <TargetCard week={current} totals={totals} />}
+          {totals && <TargetCard totals={totals} />}
 
           <Section>
             <Card className="p-3">
@@ -241,12 +241,13 @@ export default function TimesheetScreen({
                     value={hours[day.date] ?? ''}
                     error={errors.hours[day.date]}
                     disabled={!day.editable || locked}
+                    empty={day.editable ? totals?.empty[day.date] : day.emptyMeaning ?? undefined}
                     onChange={(v) => setDayHours(day.date, v)}
                   />
                 ))}
               </div>
               <p className="mt-3 border-t border-line px-1 pt-3 text-[12px] text-ink-muted">
-                {MIN_HOURS_PER_DAY}–{MAX_HOURS_PER_DAY} h a day in steps of 0.25. Leave a box empty to skip a day.
+                {MIN_HOURS_PER_DAY}–{MAX_HOURS_PER_DAY} h a day in steps of 0.25. Enter 0 for a day you did not work.
               </p>
             </Card>
           </Section>
@@ -267,7 +268,7 @@ export default function TimesheetScreen({
                     if (errors.description) setErrors((er) => ({ ...er, description: undefined }))
                   }}
                   aria-invalid={!!errors.description}
-                  className={`mt-1.5 w-full rounded-lg border bg-white px-4 py-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 disabled:bg-mist-50 disabled:text-ink-muted ${
+                  className={`mt-1.5 w-full rounded-xl border bg-white px-4 py-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 disabled:bg-mist-50 disabled:text-ink-muted ${
                     errors.description ? 'border-bad/50' : 'border-line-strong'
                   }`}
                 />
@@ -324,35 +325,24 @@ export default function TimesheetScreen({
 
 /* ---------- Expected, entered and remaining hours ---------- */
 
-function TargetCard({ week, totals }: { week: WeekData; totals: { expected: number; entered: number; remaining: number } }) {
-  const scheduled = Number(week.target.scheduledHours)
-  const holiday = Number(week.target.holidayHours)
-  const leave = Number(week.target.leaveHours)
-  const done = totals.remaining === 0 && totals.expected > 0
+function TargetCard({ totals }: { totals: WeekTotals }) {
+  const done = totals.remaining === 0 && totals.over === 0 && totals.total > 0
   return (
     <Section>
       <Card className="p-4">
         <dl className="grid grid-cols-3 gap-2 text-center">
-          <Figure label="Expected" value={totals.expected} />
-          <Figure label="Entered" value={totals.entered} />
-          <Figure label="Remaining" value={totals.remaining} tone={done ? 'ok' : totals.remaining > 0 ? 'warn' : 'plain'} />
+          <Figure label="Required" value={totals.total} />
+          <Figure label="Hours accounted for" value={totals.counted} />
+          <Figure
+            label={totals.over > 0 ? 'Too many hours' : 'Unfilled hours'}
+            value={totals.over > 0 ? totals.over : totals.remaining}
+            tone={done ? 'ok' : totals.remaining > 0 || totals.over > 0 ? 'warn' : 'plain'}
+          />
         </dl>
         <div className="mt-3">
-          <ProgressBar value={totals.entered} max={totals.expected} />
+          <ProgressBar value={totals.counted} max={Math.max(totals.total, totals.counted)} />
         </div>
-        <p className="mt-2.5 text-[12px] leading-relaxed text-ink-muted">
-          {holiday > 0 || leave > 0 ? (
-            <>
-              {formatHours(scheduled)} h scheduled
-              {holiday > 0 && ` − ${formatHours(holiday)} h holiday`}
-              {leave > 0 && ` − ${formatHours(leave)} h approved leave`}
-              {` = ${formatHours(totals.expected)} h expected.`}
-              {leave > 0 && ' Approved leave is not counted as hours worked.'}
-            </>
-          ) : (
-            `${formatHours(scheduled)} h scheduled this week.`
-          )}
-        </p>
+        <p className="mt-2.5 text-[12px] leading-relaxed text-ink-muted">Days with no hours and no paid leave will count as LOP.</p>
       </Card>
     </Section>
   )
@@ -374,8 +364,11 @@ function noteFor(day: WeekDayData): string {
   if (day.beforeJoining) return 'Before joining'
   if (day.kind === 'HOLIDAY') return day.holidayName ?? 'Holiday'
   if (day.kind === 'WEEKLY_OFF') return 'Weekly off'
-  if (day.leave === 'FULL_DAY') return 'Full-day leave (approved)'
-  if (day.leave === 'HALF_DAY') return `Half-day leave (approved) · ${formatHours(day.targetHours)} h`
+  if (day.leave === 'FULL_DAY') return 'Approved leave · counts toward the week'
+  if (day.leave === 'HALF_DAY') {
+    const leaveHours = Number(day.scheduledHours) - Number(day.targetHours)
+    return `Half-day leave (approved) · ${formatHours(leaveHours)} h leave + ${formatHours(day.targetHours)} h to work`
+  }
   return ''
 }
 
@@ -384,39 +377,63 @@ function dayLabel(iso: string): string {
   return `${d.toLocaleDateString('en-US', { weekday: 'long' })} · ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
 }
 
+/** The note shown on a working day left at 0 hours, with its colour. */
+const EMPTY_NOTE: Record<EmptyMeaning, { text: string; tone: string } | null> = {
+  LOP: { text: 'LOP · no paid leave left', tone: 'text-rejected-ink' },
+  PENDING_LEAVE: { text: 'Leave waiting for HR', tone: 'text-pending-ink' },
+  NEEDS_LEAVE: { text: 'Apply for leave or enter hours', tone: 'text-pending-ink' },
+  UNFILLED: null, // the blank box says it all
+}
+
 function DayRow({
-  day, isToday, value, error, disabled, onChange,
+  day, isToday, value, error, disabled, empty, onChange,
 }: {
   day: WeekDayData
   isToday: boolean
   value: string
   error?: string
   disabled: boolean
+  /** What this working day means while it has no hours (see weekTotals). */
+  empty?: EmptyMeaning
   onChange: (value: string) => void
 }) {
   const id = `hours-${day.date}`
   const label = dayLabel(day.date)
-  const note = noteFor(day)
+  const emptyNote = empty ? EMPTY_NOTE[empty] : null
+  const note = noteFor(day) || emptyNote?.text || ''
   const status = day.entryStatus ? STATUS_LABEL[day.entryStatus] ?? 'Pending' : null
-  const greyed = !day.editable && !status
+  // A full day of approved leave shows its hours (9 on a normal day): they count toward the week.
+  const leaveDay = day.leave === 'FULL_DAY' && !status
+  const greyed = !day.editable && !status && !leaveDay
   return (
     <div>
       <div className="flex items-stretch gap-2">
         <label
           htmlFor={id}
-          className={`flex min-h-12 min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border px-3 py-2 ${
+          className={`flex min-h-12 min-w-0 flex-1 items-center justify-between gap-2 rounded-xl border px-3 py-2 ${
             greyed ? 'border-line bg-mist-50 text-ink-muted' : 'border-line-strong bg-white text-ink'
           } ${isToday ? 'ring-1 ring-inset ring-navy-700/40' : ''}`}
         >
           <span className="min-w-0">
             <span className={`block truncate text-[15px] ${greyed ? '' : 'font-medium'}`}>{label}</span>
-            {note && <span className="block truncate text-[12px] leading-tight">{note}</span>}
+            {note && (
+              <span className={`block truncate text-[12px] leading-tight ${!noteFor(day) && emptyNote ? `font-medium ${emptyNote.tone}` : ''}`}>
+                {note}
+              </span>
+            )}
           </span>
           {status && <StatusBadge status={status} />}
         </label>
-        {status ? (
+        {leaveDay ? (
           <div
-            className="tnum grid h-12 w-[5.5rem] shrink-0 place-items-center rounded-lg border border-line bg-mist-50 text-[15px] text-ink-soft"
+            className="tnum grid h-12 w-[5.5rem] shrink-0 place-items-center rounded-xl border border-approved/50 bg-approved-soft text-[15px] font-medium text-approved-ink"
+            aria-label={`${label}, ${formatHours(day.scheduledHours)} hours of approved leave`}
+          >
+            {formatHours(day.scheduledHours)}
+          </div>
+        ) : status ? (
+          <div
+            className="tnum grid h-12 w-[5.5rem] shrink-0 place-items-center rounded-xl border border-line bg-mist-50 text-[15px] text-ink-soft"
             aria-label={`${label}, ${formatHours(day.hours)} hours submitted`}
           >
             {formatHours(day.hours)}
@@ -426,16 +443,16 @@ function DayRow({
             id={id}
             type="number"
             inputMode="decimal"
-            min={MIN_HOURS_PER_DAY}
+            min={0}
             max={MAX_HOURS_PER_DAY}
             step={0.25}
             value={day.editable ? value : ''}
             onChange={(e) => onChange(e.target.value)}
             disabled={disabled}
-            placeholder={day.editable ? '0' : '–'}
+            placeholder="–"
             aria-label={`Hours for ${label}${note ? ` (${note.toLowerCase()})` : ''}`}
             aria-invalid={!!error}
-            className={`tnum h-12 w-[5.5rem] shrink-0 rounded-lg border px-3 text-[15px] outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 disabled:cursor-not-allowed disabled:bg-mist-50 disabled:text-ink-muted ${
+            className={`tnum h-12 w-[5.5rem] shrink-0 rounded-xl border px-3 text-[15px] outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 disabled:cursor-not-allowed disabled:bg-mist-50 disabled:text-ink-muted ${
               error ? 'border-bad/60 bg-white text-ink' : 'border-line-strong bg-white text-ink'
             }`}
           />
@@ -456,6 +473,7 @@ function ConfirmDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfir
   const cancelRef = useRef<HTMLButtonElement | null>(null)
   const [answered, setAnswered] = useState(false)
 
+  useBackHandler(onCancel)
   useEffect(() => {
     cancelRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
@@ -466,12 +484,12 @@ function ConfirmDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfir
   }, [onCancel])
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-end bg-navy-950/40 p-4 sm:place-items-center">
+    <div className="backdrop-enter fixed inset-0 z-50 grid place-items-end bg-navy-950/45 p-4 backdrop-blur-[2px] sm:place-items-center">
       <div
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-submit-title"
-        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+        className="sheet sheet-enter w-full max-w-sm p-5"
       >
         <p id="confirm-submit-title" className="text-[16px] font-semibold leading-snug text-ink">
           {CONFIRM_SUBMIT_MESSAGE}

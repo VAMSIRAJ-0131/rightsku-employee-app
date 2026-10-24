@@ -18,6 +18,8 @@ export interface HrTimesheetWeek {
   reviewedAt: string | null
   reviewNote: string | null
   days: TimesheetRecord[]
+  /** Working days left at 0 hours with no leave: LOP once the week is approved (older servers leave it out). */
+  zeroHourDays?: string[]
 }
 
 export interface ApprovalCounts {

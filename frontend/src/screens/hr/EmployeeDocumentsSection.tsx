@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../../components/Icons'
 import { Button, Card, EmptyState, List, ListRow, Notice, Section, Spinner } from '../../components/ui'
-import { saveFile, type ApiError } from '../../lib/api'
+import type { ApiError } from '../../lib/api'
+import { saveDownloadedFile, savedMessage } from '../../lib/fileSave'
+import { notifyDownloaded } from '../../lib/systemNotifications'
 import { downloadHrDocument, formatSize, listEmployeeDocuments, type DocumentRecord } from '../../lib/documents'
 import { formatDate } from '../../lib/format'
 
@@ -36,8 +38,15 @@ export default function EmployeeDocumentsSection({
 
   async function download(doc: DocumentRecord) {
     const result = await downloadHrDocument(token, doc)
-    if (result.ok) saveFile(result.data)
-    else onToast(onError(result.error).message, 'error')
+    if (!result.ok) {
+      onToast(onError(result.error).message, 'error')
+      return
+    }
+    const saved = await saveDownloadedFile(result.data, doc.title)
+    if (saved.ok) {
+      onToast(savedMessage(doc.title, saved), 'success')
+      if (saved.method === 'saved') void notifyDownloaded(saved, doc.title)
+    } else onToast(saved.message, saved.cancelled ? 'info' : 'error')
   }
 
   return (

@@ -213,4 +213,27 @@ class DocumentControllerTest {
         verify(documentService, never()).listMine(anyLong());
         verify(documentService, never()).downloadMine(anyLong(), anyLong());
     }
+
+    @Test
+    void theAndroidAppCanReadTheFileNameOfItsOwnDownload() throws Exception {
+        when(documentService.downloadMine(110L, 7L))
+                .thenReturn(new DocumentService.DownloadedDocument("Offer letter.png", "image/png", DocumentFileRulesTest.PNG));
+
+        // The app (origin https://localhost) is cross-origin to the API, so the header must be exposed.
+        mockMvc.perform(get("/api/employee/documents/7/file").header(AUTH, bearer(employeeToken))
+                        .header("Origin", "https://localhost"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://localhost"))
+                .andExpect(header().string("Access-Control-Expose-Headers", containsString("Content-Disposition")))
+                .andExpect(header().string("Content-Type", "image/png"))
+                .andExpect(header().string("Content-Disposition", containsString("Offer letter.png")));
+    }
+
+    @Test
+    void anUnknownWebsiteGetsNoCorsAccessToDocuments() throws Exception {
+        mockMvc.perform(get("/api/employee/documents/7/file").header(AUTH, bearer(employeeToken))
+                        .header("Origin", "https://evil.example"))
+                .andExpect(status().isForbidden());
+        verify(documentService, never()).downloadMine(anyLong(), anyLong());
+    }
 }

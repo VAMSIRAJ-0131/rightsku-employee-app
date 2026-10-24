@@ -57,7 +57,7 @@ export default function WeeklyTimesheetHistory({ items }: { items: Timesheet[] }
                     </div>
                     <p className="mt-0.5 text-[13px] leading-snug text-ink-muted">{t.description}</p>
                     {t.status === 'Rejected' && t.remark && (
-                      <div className="mt-2 rounded-md border-l-2 border-bad bg-bad-soft px-3 py-2 text-[12px] leading-relaxed text-bad">
+                      <div className="mt-2 rounded-md border-l-2 border-rejected bg-rejected-soft px-3 py-2 text-[12px] leading-relaxed text-rejected-ink">
                         <span className="font-semibold">HR note:</span> {t.remark}
                       </div>
                     )}

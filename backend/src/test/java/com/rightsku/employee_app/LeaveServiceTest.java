@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,6 +47,7 @@ class LeaveServiceTest {
     private AppUserRepository users;
     private LeaveService service;
     private CompOffService compOff;
+    private NotificationRepository notificationRows;
     private final List<LeaveBalance> savedBalances = new ArrayList<>();
     private final List<LeaveRequest> savedRequests = new ArrayList<>();
     private final List<LeaveBalanceAdjustment> savedAdjustments = new ArrayList<>();
@@ -69,7 +71,9 @@ class LeaveServiceTest {
         WorkCalendarService calendar = new WorkCalendarService(schedules, holidays, "SATURDAY,SUNDAY", new BigDecimal("9"));
         adjustments = mock(LeaveBalanceAdjustmentRepository.class);
         users = mock(AppUserRepository.class);
-        service = new LeaveService(balances, requests, employees, calendar, audit, adjustments, CLOCK);
+        notificationRows = mock(NotificationRepository.class);
+        service = new LeaveService(balances, requests, employees, calendar, audit, adjustments,
+                new NotificationService(notificationRows, CLOCK), CLOCK);
         compOff = new CompOffService(balances, requests, adjustments, employees, users, audit);
 
         // HR (user 1) has no employee record, so the history names them by email.
@@ -154,10 +158,10 @@ class LeaveServiceTest {
         when(employees.findByUser_Id(userId)).thenReturn(Optional.of(e));
         when(employees.findById(id)).thenReturn(Optional.of(e));
         when(employees.lockById(id)).thenReturn(Optional.of(e));
-        when(employees.findAllById(any())).thenAnswer(call -> {
+        doAnswer(call -> {
             Collection<Long> ids = call.getArgument(0);
             return people.stream().filter(p -> ids.contains(p.getId())).toList();
-        });
+        }).when(employees).findAllById(any());
         return e;
     }
 
@@ -304,6 +308,38 @@ class LeaveServiceTest {
         Throwable again = catchThrowable(() -> service.approve(sent.id(), null, HR));
         assertApiError(again, HttpStatus.CONFLICT, null);
         assertThat(balance("CASUAL").balanceDays()).isEqualByComparingTo("3");
+    }
+
+    @Test
+    void theEmployeeIsNotifiedWhenHrApprovesOrRejects() {
+        service.setBalance(10L, "CASUAL", new BigDecimal("5"), HR);
+        LeaveRequestResponse first = service.apply(110L, leave("CASUAL", "2026-10-19", "2026-10-20"));
+        LeaveRequestResponse second = service.apply(110L, leave("CASUAL", "2026-10-26", "2026-10-26"));
+        verify(notificationRows, never()).save(any());   // applying notifies nobody
+
+        service.approve(first.id(), null, HR);
+        service.reject(second.id(), "Release week", HR);
+
+        ArgumentCaptor<Notification> sent = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRows, org.mockito.Mockito.times(2)).save(sent.capture());
+        Notification approved = sent.getAllValues().get(0);
+        assertThat(approved.getUserId()).as("Ravi's own account").isEqualTo(110L);
+        assertThat(approved.getType()).isEqualTo("LEAVE_APPROVED");
+        assertThat(approved.getTitle()).isEqualTo("Casual leave approved");
+        assertThat(approved.getMessage()).isEqualTo("Your Casual leave for 19 Oct 2026 to 20 Oct 2026 was approved.");
+        Notification rejected = sent.getAllValues().get(1);
+        assertThat(rejected.getType()).isEqualTo("LEAVE_REJECTED");
+        assertThat(rejected.getMessage()).isEqualTo("Your Casual leave for 26 Oct 2026 was rejected. HR note: Release week");
+    }
+
+    @Test
+    void aRefusedApprovalNotifiesNobody() {
+        service.setBalance(10L, "CASUAL", new BigDecimal("5"), HR);
+        LeaveRequestResponse sent = service.apply(110L, leave("CASUAL", "2026-10-19", "2026-10-21"));
+        service.setBalance(10L, "CASUAL", new BigDecimal("1"), HR);
+
+        assertApiError(catchThrowable(() -> service.approve(sent.id(), null, HR)), HttpStatus.CONFLICT, null);
+        verify(notificationRows, never()).save(any());
     }
 
     @Test

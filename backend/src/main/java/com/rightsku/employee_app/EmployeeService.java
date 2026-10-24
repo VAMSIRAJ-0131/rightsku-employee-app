@@ -76,6 +76,14 @@ public class EmployeeService {
         return EmployeeResponse.from(find(id));
     }
 
+    /** The signed-in employee's own record, found by their account (user) ID from the token. */
+    @Transactional(readOnly = true)
+    public EmployeeResponse mine(long userId) {
+        return employees.findByUser_Id(userId)
+                .map(EmployeeResponse::from)
+                .orElseThrow(() -> ApiException.notFound("No employee record is linked to this account."));
+    }
+
     /* ---------- Create ---------- */
 
     @Transactional
@@ -158,6 +166,32 @@ public class EmployeeService {
         employees.saveAndFlush(employee);
         record(actorUserId, active ? "EMPLOYEE_ACTIVATED" : "EMPLOYEE_DEACTIVATED", employee);
         return EmployeeResponse.from(employee);
+    }
+
+    /* ---------- Reset a forgotten password ---------- */
+
+    /**
+     * HR gives an employee who forgot their password a temporary one. It is
+     * stored only as a BCrypt hash and never returned or logged; every session
+     * of the employee ends, and they must choose their own password at the
+     * next sign-in. Inactive employees cannot be reset (activate them first).
+     */
+    @Transactional
+    public void resetPassword(long id, HrPasswordResetRequest request, Long actorUserId) {
+        Employee employee = find(id);
+        AppUser account = employee.getUser();
+        if (!employee.isActive() || !account.isActive()) {
+            throw ApiException.conflict(null, "This employee is inactive. Activate them before resetting the password.");
+        }
+        PasswordPolicy.problem(request.temporaryPassword()).ifPresent(problem -> {
+            throw ApiException.invalid("temporaryPassword", problem);
+        });
+        if (!request.temporaryPassword().equals(request.confirmPassword())) {
+            throw ApiException.invalid("confirmPassword", "The two passwords don't match.");
+        }
+        account.resetToTemporaryPassword(passwordEncoder.encode(request.temporaryPassword()));
+        users.saveAndFlush(account);
+        record(actorUserId, "PASSWORD_RESET_BY_HR", employee);
     }
 
     /* ---------- Helpers ---------- */

@@ -91,21 +91,22 @@ afterEach(() => {
 describe('weekly target and totals', () => {
   it('a normal week of five 9-hour days is 45 hours', () => {
     const week = serverWeek(NORMAL)
-    expect(weekTotals(week, {})).toEqual({ expected: 45, entered: 0, remaining: 45 })
-    expect(weekTotals(week, FULL_WEEK)).toEqual({ expected: 45, entered: 45, remaining: 0 })
-    expect(weekTotals(week, { ...FULL_WEEK, '2026-10-09': '' })).toEqual({ expected: 45, entered: 36, remaining: 9 })
+    expect(weekTotals(week, {})).toMatchObject({ expected: 45, required: 45, entered: 0, remaining: 45 })
+    expect(weekTotals(week, FULL_WEEK)).toMatchObject({ expected: 45, required: 45, entered: 45, remaining: 0, over: 0 })
+    // Paid leave still available: an empty Friday needs leave, so the week still needs all 45 hours.
+    expect(weekTotals(week, { ...FULL_WEEK, '2026-10-09': '' })).toMatchObject({ expected: 45, required: 45, entered: 36, remaining: 9 })
   })
 
   it('a full day of approved leave makes it 36 hours, and leave is not added to hours worked', () => {
     const week = serverWeek('WWFWWOO')
     expect(weekTotals(week, { '2026-10-05': '9', '2026-10-06': '9', '2026-10-08': '9', '2026-10-09': '9' }))
-      .toEqual({ expected: 36, entered: 36, remaining: 0 })
+      .toMatchObject({ expected: 36, required: 36, entered: 36, remaining: 0 })
     expect(week.days[2].editable).toBe(false)
   })
 
   it('a half day of approved leave makes it 40.5 hours', () => {
     const week = serverWeek('WW½WWOO')
-    expect(weekTotals(week, { ...FULL_WEEK, '2026-10-07': '4.5' })).toEqual({ expected: 40.5, entered: 40.5, remaining: 0 })
+    expect(weekTotals(week, { ...FULL_WEEK, '2026-10-07': '4.5' })).toMatchObject({ expected: 40.5, required: 40.5, entered: 40.5, remaining: 0 })
     expect(weekTotals(week, { ...FULL_WEEK, '2026-10-07': '4.25' }).remaining).toBe(0.25)
   })
 
@@ -147,7 +148,7 @@ describe('hours boxes and checks', () => {
   })
 
   it('keeps the existing 1-9 hour daily rule', () => {
-    for (const bad of ['0', '0.5', '9.25', '10', '7.1']) {
+    for (const bad of ['0.5', '9.25', '10', '7.1', '-1']) {
       const { errors } = prepareWeek(serverWeek(NORMAL), { '2026-10-06': bad }, '', 'draft')
       expect(errors.hours['2026-10-06'], bad).toBe('Enter hours from 1 to 9, in steps of 0.25 (for example 7.5).')
     }
@@ -171,7 +172,7 @@ describe('hours boxes and checks', () => {
 
   it('too few hours block Submit and say how many are missing', () => {
     const { errors } = prepareWeek(serverWeek(NORMAL), { ...FULL_WEEK, '2026-10-09': '4.5' }, 'Work', 'submit')
-    expect(errors.form).toBe("Enter 4.5 more hours to reach this week's 45 hours.")
+    expect(errors.form).toBe('Enter 4.5 more hours: this week needs exactly 45 hours.')
   })
 
   it('Submit is checked against the lower target when there is a holiday or leave', () => {
@@ -200,7 +201,7 @@ describe('hours boxes and checks', () => {
     expect(prepareWeek(week, {}, 'Work', 'draft').errors.form).toBe(message)
     expect(prepareWeek(week, {}, 'Work', 'submit').errors.form).toBe(message)
     expect(startingHours(week)).toEqual({})
-    expect(weekTotals(week, {})).toEqual({ expected: 45, entered: 45, remaining: 0 })
+    expect(weekTotals(week, {})).toMatchObject({ expected: 45, entered: 45, remaining: 0 })
   })
 
   it('Save and Submit send nothing for an already-submitted week', async () => {
@@ -317,7 +318,9 @@ describe('Submit for approval', () => {
     const result = await actions.submit(serverWeek(NORMAL), { ...FULL_WEEK, '2026-10-09': '' }, 'Payslip screen')
 
     expect(result.kind).toBe('invalid')
-    if (result.kind === 'invalid') expect(result.errors.form).toBe("Enter 9 more hours to reach this week's 45 hours.")
+    if (result.kind === 'invalid') {
+      expect(result.errors.form).toBe('Fri 9 Oct is not filled in. Enter the hours worked, or 0 for a day you did not work.')
+    }
     expect(confirm).not.toHaveBeenCalled()
     expect(submit).not.toHaveBeenCalled()
   })

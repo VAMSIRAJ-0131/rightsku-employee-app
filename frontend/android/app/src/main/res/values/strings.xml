@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RightCentral</string>
+    <string name="title_activity_main">RightCentral</string>
+    <string name="package_name">com.rightsku.employeeapp</string>
+    <string name="custom_url_scheme">com.rightsku.employeeapp</string>
+</resources>

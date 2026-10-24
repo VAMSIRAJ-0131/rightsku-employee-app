@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useReducer, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icons'
 import {
   AppHeader, Avatar, AvatarButton, BottomNav, Button, Card, CardButton, DetailRow, EmptyState,
-  FilterChips, IconButton, IconTile, List, ListRow, Notice, Page, ProgressBar, Section,
+  IconButton, IconTile, List, ListRow, LogoutButton, Notice, Page, ProgressBar, Section,
   Segmented, Spinner, StatusBadge, Tag, TopBar, useToast,
 } from '../../components/ui'
 import type {
@@ -11,16 +11,34 @@ import type {
 import {
   currentWorkWeek, firstName, formatDate, formatShortDate, greeting, monthLabel, plural, toIsoDate,
 } from '../../lib/format'
-import { saveFile, type ApiError } from '../../lib/api'
-import { downloadMyDocument, listMyDocuments, toEmployeeDocument } from '../../lib/documents'
-import { INITIAL_EMPLOYEE_NAV, employeeNav, type EmployeeSubScreen, type EmployeeTab } from '../../lib/employeeNav'
+import type { ApiError } from '../../lib/api'
+import { saveDownloadedFile, savedMessage } from '../../lib/fileSave'
+import {
+  documentFilterOptions, downloadMyDocument, filterDocuments, listMyDocuments, toEmployeeDocument,
+} from '../../lib/documents'
+import { INITIAL_EMPLOYEE_NAV, canGoBack, employeeNav, type EmployeeSubScreen, type EmployeeTab } from '../../lib/employeeNav'
+import { backStack } from '../../lib/backStack'
+import { setStatusBarTheme } from '../../lib/statusBar'
+import {
+  THEME_CHOICES, applyTheme, onSystemThemeChange, readThemeChoice, resolveTheme, saveThemeChoice, systemPrefersDark,
+  type ThemeChoice,
+} from '../../lib/theme'
 import { MAX_DAYS_BACK, listMyTimesheets, toTimesheet } from '../../lib/workCalendar'
 import TimesheetScreen from './TimesheetScreen'
 import LeaveScreen from './LeaveScreen'
 import { getMyLeaveBalances, getMyLeaveRequests, toLeaveBalance, toLeaveRequest, type LeaveBalanceRecord } from '../../lib/leave'
 import WeeklyTimesheetHistory from './WeeklyTimesheetHistory'
+import Dropdown from '../../components/Dropdown'
 import { weekCount } from '../../lib/timesheetHistory'
 import ChangePasswordScreen from '../shared/ChangePasswordScreen'
+import { getMyProfile, withProfileRecord } from '../../lib/profile'
+import {
+  listMyNotifications, markAllNotificationsRead, markNotificationRead, timeAgo, type NotificationRecord,
+} from '../../lib/notifications'
+import { listMyHolidays, upcomingHolidays, type HolidayRecord } from '../../lib/workCalendar'
+import { loadMyPhoto } from '../../lib/photos'
+import { notifyDownloaded, notifyNewInbox, setInboxOpener } from '../../lib/systemNotifications'
+import { App as CapacitorApp } from '@capacitor/app'
 
 type Tab = EmployeeTab
 type SubScreen = EmployeeSubScreen
@@ -30,7 +48,7 @@ type DocFilter = 'All' | DocType
 type Loaded<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; items: T[] }
 
 export default function EmployeeApp({
-  user,
+  user: sessionUser,
   data,
   token,
   onLogout,
@@ -46,8 +64,10 @@ export default function EmployeeApp({
   /** The password was changed: every session has ended, so the app returns to sign-in. */
   onPasswordChanged: () => void
 }) {
-  const { notifications } = data
+  // Notifications come from the server (GET /api/employee/notifications), not from data.
+  void data
   const [nav, dispatch] = useReducer(employeeNav, INITIAL_EMPLOYEE_NAV)
+  const { choice: themeChoice, theme, choose: chooseTheme } = useEmployeeTheme()
   const { tab, sub } = nav
   const [requestsView, setRequestsView] = useState<'timesheets' | 'leaves'>('timesheets')
   const [docFilter, setDocFilter] = useState<DocFilter>('All')
@@ -58,6 +78,13 @@ export default function EmployeeApp({
   const [leaveState, setLeaveState] = useState<Loaded<LeaveRequest>>({ status: 'loading' })
   const [balanceRecords, setBalanceRecords] = useState<LeaveBalanceRecord[] | null>(null)
   const [balanceError, setBalanceError] = useState<string | null>(null)
+  // Starts from the login response; the real name and work details replace it once loaded.
+  const [user, setUser] = useState<Employee>(sessionUser)
+  const [notifState, setNotifState] = useState<Loaded<NotificationRecord>>({ status: 'loading' })
+  const [unread, setUnread] = useState(0)
+  const [holidayState, setHolidayState] = useState<Loaded<HolidayRecord>>({ status: 'loading' })
+  // Object URL of the employee's own photo (set by HR), or null for initials.
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
 
   /** Shared handling for a failed request: sign out on 401, otherwise keep the message. */
   const handleError = useCallback(
@@ -67,6 +94,111 @@ export default function EmployeeApp({
     },
     [onSessionExpired],
   )
+
+  // The employee's own profile (name, department, job title, ...). If it fails,
+  // the dashboard keeps the Employee ID as the name; nothing else depends on it.
+  useEffect(() => {
+    const controller = new AbortController()
+    getMyProfile(token, controller.signal).then((result) => {
+      if (controller.signal.aborted) return
+      if (result.ok) setUser((current) => withProfileRecord(current, result.data))
+      else handleError(result.error)
+    })
+    return () => controller.abort()
+  }, [token, handleError])
+
+  // The employee's own photo. No photo (or an older server) simply keeps the initials.
+  useEffect(() => {
+    const controller = new AbortController()
+    let url: string | null = null
+    loadMyPhoto(token, controller.signal).then((result) => {
+      if (controller.signal.aborted) {
+        if (result.ok && result.data) URL.revokeObjectURL(result.data)
+        return
+      }
+      if (result.ok) {
+        url = result.data
+        setPhotoUrl(result.data)
+      } else handleError(result.error)
+    })
+    return () => {
+      controller.abort()
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [token, handleError])
+
+  // Notifications written by the server when HR acts. Reloaded with the other lists.
+  const loadNotifications = useCallback(
+    (signal?: AbortSignal) =>
+      listMyNotifications(token, signal).then((result) => {
+        if (signal?.aborted) return
+        if (result.ok) {
+          setNotifState({ status: 'ready', items: result.data.items })
+          setUnread(result.data.unreadCount)
+          // New ones also go to the phone's notification centre (while the app is open).
+          void notifyNewInbox(sessionUser.id, result.data.items)
+        } else setNotifState({ status: 'error', message: handleError(result.error).message })
+      }),
+    [token, handleError, sessionUser.id],
+  )
+  useEffect(() => {
+    const controller = new AbortController()
+    loadNotifications(controller.signal)
+    return () => controller.abort()
+  }, [loadNotifications, version])
+
+  // Check for new notifications every minute while the app is on screen, and
+  // straight away when it comes back to the front. Nothing runs in the background.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') loadNotifications()
+    }
+    const timer = window.setInterval(refresh, 60_000)
+    document.addEventListener('visibilitychange', refresh)
+    const resume = CapacitorApp.addListener('resume', refresh).catch(() => null)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', refresh)
+      resume.then((h) => h?.remove()).catch(() => {})
+    }
+  }, [loadNotifications])
+
+  // Tapping an "approval" phone notification opens this list.
+  useEffect(() => {
+    setInboxOpener(() => dispatch({ type: 'open', sub: 'notifications' }))
+    return () => setInboxOpener(null)
+  }, [])
+
+  // This year's company holidays (published by HR).
+  useEffect(() => {
+    const controller = new AbortController()
+    listMyHolidays(token, new Date().getFullYear(), controller.signal).then((result) => {
+      if (controller.signal.aborted) return
+      if (result.ok) setHolidayState({ status: 'ready', items: result.data })
+      else setHolidayState({ status: 'error', message: handleError(result.error).message })
+    })
+    return () => controller.abort()
+  }, [token, version, handleError])
+
+  async function openNotification(n: NotificationRecord) {
+    if (n.read) return
+    // Shown as read straight away; the server is the record.
+    setNotifState((s) => (s.status === 'ready' ? { ...s, items: s.items.map((x) => (x.id === n.id ? { ...x, read: true } : x)) } : s))
+    setUnread((u) => Math.max(0, u - 1))
+    const result = await markNotificationRead(token, n.id)
+    if (!result.ok) {
+      show(handleError(result.error).message, 'error')
+      loadNotifications()
+    }
+  }
+
+  async function readAll() {
+    const result = await markAllNotificationsRead(token)
+    if (result.ok) {
+      setNotifState({ status: 'ready', items: result.data.items })
+      setUnread(result.data.unreadCount)
+    } else show(handleError(result.error).message, 'error')
+  }
 
   // The employee's own timesheets (the server only ever returns theirs).
   useEffect(() => {
@@ -115,7 +247,8 @@ export default function EmployeeApp({
   const myLeaves = leaveState.status === 'ready' ? leaveState.items : []
   const leaveBalance: LeaveBalance[] = balanceRecords ? balanceRecords.map(toLeaveBalance) : []
   const myDocs = docState.status === 'ready' ? docState.items : []
-  const unread = notifications.filter((n) => !n.read).length
+  const notifications = notifState.status === 'ready' ? notifState.items : []
+  const holidays = holidayState.status === 'ready' ? holidayState.items : []
   const pendingTs = myTimesheets.filter((t) => t.status === 'Pending')
   // Requests waiting for HR: timesheets count per week (one weekly submission), leave per request.
   const pendingTsWeeks = weekCount(pendingTs)
@@ -123,6 +256,20 @@ export default function EmployeeApp({
   const payslips = myDocs.filter((d) => d.type === 'Payslip')
 
   const goTab = (next: Tab) => dispatch({ type: 'tab', tab: next })
+  /** The previous screen, or Home when there is none. */
+  const goBack = () => dispatch({ type: 'back' })
+
+  // Fallback for Android Back on any screen without a back arrow;
+  // screens with an arrow and open pop-ups handle it first. On Home the app goes to the background.
+  const navRef = useRef(nav)
+  navRef.current = nav
+  useEffect(
+    () => backStack.push(() => {
+      if (!canGoBack(navRef.current)) return false
+      dispatch({ type: 'back' })
+    }, 'app'),
+    [],
+  )
   const setSub = (next: SubScreen) => (next ? dispatch({ type: 'open', sub: next }) : dispatch({ type: 'back' }))
   function openDocs(filter: DocFilter) {
     setDocFilter(filter)
@@ -135,13 +282,18 @@ export default function EmployeeApp({
 
   async function download(doc: EmployeeDocument) {
     show('Downloading…')
-    const result = await downloadMyDocument(token, doc.id, `${doc.title}.pdf`)
-    if (result.ok) {
-      saveFile(result.data)
-      show(`${doc.title} downloaded.`, 'success')
-    } else {
+    const result = await downloadMyDocument(token, doc.id, doc.title)
+    if (!result.ok) {
       show(handleError(result.error).message, 'error')
+      return
     }
+    // Success only once the file is really saved (on Android: in Documents/RightCentral).
+    const saved = await saveDownloadedFile(result.data, doc.title)
+    if (saved.ok) {
+      show(savedMessage(doc.title, saved), 'success')
+      // Also in the phone's notification centre; tapping it opens the file.
+      if (saved.method === 'saved') void notifyDownloaded(saved, doc.title)
+    } else show(saved.message, saved.cancelled ? 'info' : 'error')
   }
 
   const leaveHistory =
@@ -239,22 +391,59 @@ export default function EmployeeApp({
     screen = (
       <>
         <TopBar title="Notifications" subtitle={unread ? `${unread} unread` : 'All read'} onBack={() => setSub(null)} />
+        {unread > 0 && (
+          <div className="flex justify-end px-5 pt-3">
+            <TextLink onClick={readAll}>Mark all as read</TextLink>
+          </div>
+        )}
         <Section>
-          {notifications.length === 0 ? (
-            <EmptyState icon="bell" title="No notifications" message="Approvals and new documents will show up here." />
+          {notifState.status === 'error' ? (
+            <LoadError message={notifState.message} onRetry={() => setVersion((v) => v + 1)} />
+          ) : notifState.status === 'loading' ? (
+            <LoadingCard label="Loading notifications" />
+          ) : notifications.length === 0 ? (
+            <EmptyState icon="bell" title="No notifications" message="Leave and timesheet decisions, payslips and new documents will show up here." />
           ) : (
             <List>
               {notifications.map((n) => (
-                <div key={n.id} className="flex gap-3 px-4 py-3.5">
-                  <span className={`mt-[7px] h-2 w-2 shrink-0 rounded-full ${n.read ? 'bg-line-strong' : 'bg-accent'}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <p className={`text-[15px] text-ink ${n.read ? 'font-medium' : 'font-semibold'}`}>{n.title}</p>
-                      <p className="tnum shrink-0 text-[12px] text-ink-muted">{n.time}</p>
-                    </div>
-                    <p className="mt-0.5 text-[13px] leading-relaxed text-ink-muted">{n.message}</p>
-                  </div>
-                </div>
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => openNotification(n)}
+                  aria-label={`${n.read ? '' : 'Unread: '}${n.title}`}
+                  className={`flex w-full gap-3 px-4 py-3.5 text-left ${n.read ? 'hover:bg-mist-50/60' : 'bg-mist-50/70 hover:bg-mist-50'}`}
+                >
+                  <span className={`mt-[7px] h-2 w-2 shrink-0 rounded-full ${n.read ? 'bg-line-strong' : notificationDot(n.type)}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline justify-between gap-3">
+                      <span className={`text-[15px] text-ink ${n.read ? 'font-medium' : 'font-semibold'}`}>{n.title}</span>
+                      <span className="tnum shrink-0 text-[12px] text-ink-muted">{timeAgo(n.createdAt)}</span>
+                    </span>
+                    <span className="mt-0.5 block text-[13px] leading-relaxed text-ink-muted">{n.message}</span>
+                  </span>
+                </button>
+              ))}
+            </List>
+          )}
+        </Section>
+      </>
+    )
+  } else if (sub === 'holidays') {
+    const today = toIsoDate(new Date())
+    screen = (
+      <>
+        <TopBar title="Holiday calendar" subtitle={`${new Date().getFullYear()} company holidays`} onBack={() => setSub(null)} />
+        <Section>
+          {holidayState.status === 'error' ? (
+            <LoadError message={holidayState.message} onRetry={() => setVersion((v) => v + 1)} />
+          ) : holidayState.status === 'loading' ? (
+            <LoadingCard label="Loading holidays" />
+          ) : holidays.length === 0 ? (
+            <EmptyState icon="calendar" title="No holidays published" message="HR adds the company holidays here when they are decided." />
+          ) : (
+            <List>
+              {holidays.map((h) => (
+                <HolidayRow key={h.id} holiday={h} past={h.date < today} />
               ))}
             </List>
           )}
@@ -265,7 +454,10 @@ export default function EmployeeApp({
     screen = (
       <HomeScreen
         user={user}
+        photoUrl={photoUrl}
         unread={unread}
+        holidays={holidays}
+        holidaysLoading={holidayState.status === 'loading'}
         myTimesheets={myTimesheets}
         myDocs={myDocs}
         pendingTsCount={pendingTsWeeks}
@@ -282,7 +474,7 @@ export default function EmployeeApp({
   } else if (tab === 'requests') {
     screen = (
       <>
-        <TopBar title="Requests" subtitle="Track approval status" />
+        <TopBar title="Requests" subtitle="Track approval status" onBack={goBack} />
         <Section>
           <Segmented
             options={[
@@ -300,13 +492,17 @@ export default function EmployeeApp({
       </>
     )
   } else if (tab === 'documents') {
-    const filters: DocFilter[] = ['All', 'Offer Letter', 'Experience Letter', 'Payslip', 'Form 16']
-    const shown = docFilter === 'All' ? myDocs : myDocs.filter((d) => d.type === docFilter)
+    const shown = filterDocuments(myDocs, docFilter)
     screen = (
       <>
-        <TopBar title="Documents" subtitle="Visible only to you and HR" />
+        <TopBar title="Documents" subtitle="Visible only to you and HR" onBack={goBack} />
         <Section>
-          <FilterChips options={filters} value={docFilter} onChange={setDocFilter} />
+          <Dropdown
+            label="Document type"
+            value={docFilter}
+            onChange={setDocFilter}
+            options={documentFilterOptions(docState.status === 'ready' ? myDocs : null)}
+          />
         </Section>
         <Section title={docFilter === 'All' ? `All documents (${shown.length})` : docFilter}>
           {docState.status === 'error' ? (
@@ -324,13 +520,13 @@ export default function EmployeeApp({
   } else {
     screen = (
       <>
-        <TopBar title="Profile" />
+        <TopBar title="Profile" onBack={goBack} />
         <Section>
           <Card className="flex items-center gap-4 px-4 py-5">
-            <Avatar name={user.name} size="lg" />
+            <Avatar name={user.name} size="lg" photoUrl={photoUrl} />
             <div className="min-w-0">
               <p className="truncate text-[18px] font-semibold text-ink">{user.name}</p>
-              <p className="truncate text-[14px] text-ink-muted">{user.designation}</p>
+              {user.designation && <p className="truncate text-[14px] text-ink-muted">{user.designation}</p>}
               <p className="tnum mt-1.5">
                 <Tag>{user.id}</Tag>
               </p>
@@ -339,10 +535,10 @@ export default function EmployeeApp({
         </Section>
         <Section title="Work">
           <Card className="divide-y divide-line">
+            {/* Manager and location are not stored by the backend yet, so they are not shown. */}
             <DetailRow icon="briefcase" label="Department" value={user.department} />
-            <DetailRow icon="calendar" label="Joined" value={formatDate(user.joiningDate)} />
-            <DetailRow icon="user" label="Reports to" value={user.manager} />
-            <DetailRow icon="pin" label="Location" value={user.location} />
+            <DetailRow icon="user" label="Job title" value={user.designation} />
+            <DetailRow icon="calendar" label="Joined" value={user.joiningDate ? formatDate(user.joiningDate) : ''} />
           </Card>
         </Section>
         <Section title="Contact">
@@ -352,15 +548,21 @@ export default function EmployeeApp({
           </Card>
           <p className="mt-2 px-1 text-[12px] text-ink-muted">To correct any detail, contact HR.</p>
         </Section>
+        <Section title="Appearance">
+          <Segmented options={THEME_CHOICES} value={themeChoice} onChange={chooseTheme} />
+          <p className="mt-2 px-1 text-[12px] text-ink-muted">
+            {themeChoice === 'system'
+              ? `Follows your phone’s setting (now ${theme}).`
+              : `Always ${themeChoice}, whatever your phone is set to.`}
+          </p>
+        </Section>
         <Section title="Security">
           <List>
             <ListRow icon="lock" title="Change password" subtitle="At least 8 characters" onClick={() => setSub('password')} />
           </List>
         </Section>
         <Section>
-          <Button variant="danger" onClick={onLogout} className="w-full">
-            <Icon name="logout" className="h-[18px] w-[18px]" /> Log out
-          </Button>
+          <LogoutButton onLogout={onLogout} subtitle={`Signed in as ${user.id}`} />
         </Section>
       </>
     )
@@ -368,7 +570,10 @@ export default function EmployeeApp({
 
   return (
     <Page>
-      {screen}
+      {/* Keyed by screen, so each newly opened screen fades in once. */}
+      <div key={`${tab}/${sub ?? ''}`} className="screen-enter">
+        {screen}
+      </div>
       <BottomNav
         items={[
           { id: 'home', label: 'Home', icon: 'home' },
@@ -384,14 +589,56 @@ export default function EmployeeApp({
   )
 }
 
+/* ---------- Theme ---------- */
+
+/**
+ * The employee's Light / Dark / System choice, applied to the whole page while
+ * the employee app is open (and removed when it closes, so HR and sign-in stay light).
+ */
+function useEmployeeTheme() {
+  const [choice, setChoice] = useState<ThemeChoice>(() => readThemeChoice())
+  const [systemDark, setSystemDark] = useState(systemPrefersDark)
+  const theme = resolveTheme(choice, systemDark)
+
+  // Follow the phone live, and check again when the app comes back to the front.
+  useEffect(() => {
+    const stop = onSystemThemeChange(setSystemDark)
+    const resume = CapacitorApp.addListener('resume', () => setSystemDark(systemPrefersDark())).catch(() => null)
+    return () => {
+      stop()
+      resume.then((l) => l?.remove())
+    }
+  }, [])
+
+  // Before the screen paints, so a dark choice never flashes light first.
+  useLayoutEffect(() => {
+    applyTheme(document.documentElement, theme)
+    setStatusBarTheme(theme)
+  }, [theme])
+  // Leaving the employee app (sign out): back to the light sign-in screen.
+  useLayoutEffect(() => () => {
+    applyTheme(document.documentElement, null)
+    setStatusBarTheme('light')
+  }, [])
+
+  const choose = useCallback((next: ThemeChoice) => {
+    setChoice(next)
+    saveThemeChoice(next)
+  }, [])
+  return { choice, theme, choose }
+}
+
 /* ---------- Home dashboard ---------- */
 
 function HomeScreen({
-  user, unread, myTimesheets, myDocs, pendingTsCount, pendingLeaveCount, payslips, leaveBalance,
-  onOpen, onOpenDocs, onOpenRequests, onOpenProfile, onDownload,
+  user, photoUrl, unread, holidays, holidaysLoading, myTimesheets, myDocs, pendingTsCount, pendingLeaveCount, payslips,
+  leaveBalance, onOpen, onOpenDocs, onOpenRequests, onOpenProfile, onDownload,
 }: {
   user: Employee
+  photoUrl: string | null
   unread: number
+  holidays: HolidayRecord[]
+  holidaysLoading: boolean
   myTimesheets: Timesheet[]
   myDocs: EmployeeDocument[]
   pendingTsCount: number
@@ -413,6 +660,7 @@ function HomeScreen({
   const weekHours = week.reduce((s, d) => s + (myTimesheets.find((t) => t.date === d.iso)?.hours ?? 0), 0)
   const totalLeft = leaveBalance.reduce((s, b) => s + b.left, 0)
   const latestPayslip = payslips[0]
+  const nextHoliday = upcomingHolidays(holidays, toIsoDate(now))[0]
   const rejectedTs = myTimesheets.filter((t) => t.status === 'Rejected').length
 
   const statusLine =
@@ -423,6 +671,8 @@ function HomeScreen({
         : myTimesheets.length === 0
           ? 'No timesheets submitted yet'
           : 'All timesheets approved'
+  const statusDot =
+    rejectedTs > 0 ? 'bg-rejected' : pendingTsCount > 0 ? 'bg-pending' : myTimesheets.length === 0 ? 'bg-accent' : 'bg-approved'
 
   // "pending" explains when HR issues each document if it isn't uploaded yet.
   const keyDocs: { type: DocType; label: string; pending: string }[] = [
@@ -436,8 +686,8 @@ function HomeScreen({
       <AppHeader
         start={
           <>
-            <AvatarButton name={user.name} label="Open your profile" onClick={onOpenProfile} />
-            <IconButton icon="bell" label={`Notifications, ${unread} unread`} dot={unread > 0} onClick={() => onOpen('notifications')} />
+            <AvatarButton name={user.name} label="Open your profile" onClick={onOpenProfile} photoUrl={photoUrl} />
+            <IconButton icon="bell" label={`Notifications, ${unread} unread`} count={unread} onClick={() => onOpen('notifications')} />
           </>
         }
       />
@@ -462,7 +712,7 @@ function HomeScreen({
             onClick={() => onOpenRequests('timesheets')}
             className="mt-4 flex w-full items-center gap-2 rounded-lg bg-white/[0.07] px-3 py-2.5 text-left text-[13px] text-mist-100 ring-1 ring-inset ring-white/10 hover:bg-white/10"
           >
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot}`} />
             <span className="flex-1">{statusLine}</span>
             <Icon name="chevronRight" className="h-4 w-4 text-mist-300" />
           </button>
@@ -487,7 +737,7 @@ function HomeScreen({
             {week.map((d) => {
               const entry = myTimesheets.find((t) => t.date === d.iso)
               const fill = entry ? Math.max(18, Math.min(100, (entry.hours / 9) * 100)) : 0
-              const bar = entry?.status === 'Approved' ? 'bg-navy-700' : entry?.status === 'Rejected' ? 'bg-bad/70' : 'bg-mist-300'
+              const bar = entry?.status === 'Approved' ? 'bg-approved' : entry?.status === 'Rejected' ? 'bg-rejected' : 'bg-pending'
               return (
                 <div key={d.iso} className="flex flex-col items-center gap-1.5">
                   <div className="flex h-10 w-full items-end overflow-hidden rounded-md bg-mist-50">
@@ -499,9 +749,9 @@ function HomeScreen({
             })}
           </div>
           <div className="mt-3 flex gap-4 text-[11px] text-ink-muted">
-            <Legend className="bg-navy-700" label="Approved" />
-            <Legend className="bg-mist-300" label="Pending" />
-            <Legend className="bg-bad/70" label="Rejected" />
+            <Legend className="bg-approved" label="Approved" />
+            <Legend className="bg-pending" label="Pending" />
+            <Legend className="bg-rejected" label="Rejected" />
           </div>
         </CardButton>
 
@@ -533,10 +783,19 @@ function HomeScreen({
                 {latestPayslip ? `Latest: ${latestPayslip.title.replace('Payslip - ', '').replace(' 2026', '')}` : 'None yet'}
               </p>
             </CardButton>
-            <CardButton onClick={() => onOpenDocs('All')} className="p-4" label="Documents">
-              <IconTile icon="folder" />
-              <p className="mt-3 text-[15px] font-semibold text-ink">Documents</p>
-              <p className="tnum text-[13px] text-ink-muted">{plural(myDocs.length, 'file')}</p>
+            {/* Holiday calendar (Documents stay one tap away in the bottom bar and below). */}
+            <CardButton onClick={() => onOpen('holidays')} className="p-4" label="Holiday calendar">
+              <IconTile icon="calendar" />
+              <p className="mt-3 text-[15px] font-semibold text-ink">Holidays</p>
+              <p className="truncate text-[13px] text-ink-muted">
+                {holidaysLoading
+                  ? 'Loading…'
+                  : nextHoliday
+                    ? `${formatShortDate(nextHoliday.date)} · ${nextHoliday.name}`
+                    : holidays.length
+                      ? 'No more this year'
+                      : 'None published yet'}
+              </p>
             </CardButton>
           </div>
         </div>
@@ -615,6 +874,37 @@ function LoadingCard({ label }: { label: string }) {
   )
 }
 
+/** Unread marker colour: green for approvals, red for rejections, navy for documents and payslips. */
+function notificationDot(type: string): string {
+  if (type.endsWith('_APPROVED')) return 'bg-approved'
+  if (type.endsWith('_REJECTED')) return 'bg-rejected'
+  return 'bg-navy-700'
+}
+
+function HolidayRow({ holiday, past }: { holiday: HolidayRecord; past: boolean }) {
+  const date = new Date(`${holiday.date}T00:00:00`)
+  const weekday = holiday.weekday.charAt(0) + holiday.weekday.slice(1).toLowerCase()
+  return (
+    <div className={`flex items-center gap-3.5 px-4 py-3 ${past ? 'opacity-55' : ''}`}>
+      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-mist-50 text-center ring-1 ring-inset ring-mist-100">
+        <span className="leading-none">
+          <span className="tnum block text-[17px] font-semibold text-navy-900">{date.getDate()}</span>
+          <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-mist-500">
+            {date.toLocaleDateString('en-IN', { month: 'short' })}
+          </span>
+        </span>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[15px] font-medium text-ink">{holiday.name}</span>
+        <span className="block text-[13px] text-ink-muted">
+          {weekday}
+          {past ? ' · Past' : ''}
+        </span>
+      </span>
+    </div>
+  )
+}
+
 function Legend({ className, label }: { className: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
@@ -651,7 +941,7 @@ function LeaveList({ items }: { items: LeaveRequest[] }) {
             {l.from !== l.to ? ` to ${formatShortDate(l.to)}` : ''}, {l.reason}
           </p>
           {l.status === 'Rejected' && l.remark && (
-            <div className="mt-2.5 rounded-md border-l-2 border-bad bg-bad-soft px-3 py-2 text-[12px] leading-relaxed text-bad">
+            <div className="mt-2.5 rounded-md border-l-2 border-rejected bg-rejected-soft px-3 py-2 text-[12px] leading-relaxed text-rejected-ink">
               <span className="font-semibold">HR note:</span> {l.remark}
             </div>
           )}

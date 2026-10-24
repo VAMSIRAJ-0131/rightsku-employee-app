@@ -219,7 +219,7 @@ function HolidayForm({
   }
 
   const input = (invalid: boolean) =>
-    `mt-1.5 h-12 w-full rounded-lg border bg-white px-4 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
+    `mt-1.5 h-12 w-full rounded-xl border bg-white px-4 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
       invalid ? 'border-bad/50' : 'border-line-strong'
     }`
 

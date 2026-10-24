@@ -1,5 +1,14 @@
 {
-  "appId": "com.rightsku.employee",
-  "appName": "RIGHTSKU Employee",
-  "webDir": "dist"
+  "appId": "com.rightsku.employeeapp",
+  "appName": "RightCentral",
+  "webDir": "dist",
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_rightcentral",
+      "iconColor": "#1E88D2"
+    },
+    "SystemBars": {
+      "style": "LIGHT"
+    }
+  }
 }

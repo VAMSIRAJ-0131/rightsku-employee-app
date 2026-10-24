@@ -1,0 +1,96 @@
+package com.rightsku.employee_app;
+
+import jakarta.persistence.*;
+import java.time.Instant;
+
+/**
+ * One in-app notification for one account (table notifications, V10).
+ * Created by the backend when HR acts; the app only marks it read.
+ */
+@Entity
+@Table(name = "notifications")
+public class Notification {
+
+    public static final String LEAVE_APPROVED = "LEAVE_APPROVED";
+    public static final String LEAVE_REJECTED = "LEAVE_REJECTED";
+    public static final String TIMESHEET_APPROVED = "TIMESHEET_APPROVED";
+    public static final String TIMESHEET_REJECTED = "TIMESHEET_REJECTED";
+    public static final String PAYSLIP_PUBLISHED = "PAYSLIP_PUBLISHED";
+    public static final String DOCUMENT_PUBLISHED = "DOCUMENT_PUBLISHED";
+
+    static final int MAX_TITLE = 150;
+    static final int MAX_MESSAGE = 500;
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "user_id", nullable = false)
+    private Long userId;
+
+    @Column(nullable = false, length = 30)
+    private String type;
+
+    @Column(nullable = false, length = MAX_TITLE)
+    private String title;
+
+    @Column(nullable = false, length = MAX_MESSAGE)
+    private String message;
+
+    @Column(name = "read_at")
+    private Instant readAt;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    protected Notification() {
+    }
+
+    public static Notification of(long userId, String type, String title, String message, Instant createdAt) {
+        Notification n = new Notification();
+        n.userId = userId;
+        n.type = type;
+        n.title = cut(title, MAX_TITLE);
+        n.message = cut(message == null ? "" : message, MAX_MESSAGE);
+        n.createdAt = createdAt;
+        return n;
+    }
+
+    private static String cut(String value, int max) {
+        return value.length() <= max ? value : value.substring(0, max - 1) + "…";
+    }
+
+    public void markRead(Instant when) {
+        if (readAt == null) {
+            readAt = when;
+        }
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public Long getUserId() {
+        return userId;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public Instant getReadAt() {
+        return readAt;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+}

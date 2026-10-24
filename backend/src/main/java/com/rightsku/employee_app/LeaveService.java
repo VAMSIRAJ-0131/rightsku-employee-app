@@ -55,6 +55,7 @@ public class LeaveService {
     private final WorkCalendarService calendarService;
     private final AuditEntryRepository audit;
     private final LeaveBalanceAdjustmentRepository adjustments;
+    private final NotificationService notifications;
     private final Clock clock;
 
     public LeaveService(
@@ -64,6 +65,7 @@ public class LeaveService {
             WorkCalendarService calendarService,
             AuditEntryRepository audit,
             LeaveBalanceAdjustmentRepository adjustments,
+            NotificationService notifications,
             Clock clock) {
         this.balances = balances;
         this.requests = requests;
@@ -71,6 +73,7 @@ public class LeaveService {
         this.calendarService = calendarService;
         this.audit = audit;
         this.adjustments = adjustments;
+        this.notifications = notifications;
         this.clock = clock;
     }
 
@@ -233,6 +236,7 @@ public class LeaveService {
         audit.save(AuditEntry.of(reviewerUserId, "LEAVE_APPROVED", "LEAVE_REQUEST", String.valueOf(request.getId()),
                 "{\"leaveType\":\"" + type.name() + "\",\"days\":" + request.getDays().toPlainString()
                         + ",\"previousDays\":" + previous.toPlainString() + ",\"newDays\":" + next.toPlainString() + "}"));
+        notifications.leaveDecided(employee, request, true);
         return LeaveRequestResponse.from(request, employee);
     }
 
@@ -244,6 +248,7 @@ public class LeaveService {
         request.decide(LeaveRequest.STATUS_REJECTED, reviewerUserId, clock.instant(), HrTimesheetService.cleanNote(note));
         requests.saveAndFlush(request);
         audit.save(AuditEntry.of(reviewerUserId, "LEAVE_REJECTED", "LEAVE_REQUEST", String.valueOf(request.getId())));
+        notifications.leaveDecided(employee, request, false);
         return LeaveRequestResponse.from(request, employee);
     }
 

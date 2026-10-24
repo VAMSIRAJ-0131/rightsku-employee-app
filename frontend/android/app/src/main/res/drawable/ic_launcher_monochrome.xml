@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single-colour RightCentral mark for Android 13+ themed icons (the system tints it).
+     Same shapes and positions as ic_launcher_mark.xml. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="1.1"
+        android:scaleY="1.1">
+        <path
+            android:pathData="M76.55,45.79 A24,24 0 1,1 58.17,30.36"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="6"
+            android:strokeLineCap="round" />
+        <group
+            android:pivotX="57.6"
+            android:pivotY="51.1"
+            android:scaleX="0.615"
+            android:scaleY="0.615"
+            android:translateX="-7.24"
+            android:translateY="-2.5">
+            <path
+                android:pathData="M37,65 L47,55 L55,62 L70,46"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="6"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round" />
+            <path
+                android:pathData="M78.2,37.2 L75.1,50.8 L64.9,41.2 Z"
+                android:fillColor="#FFFFFFFF"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="2"
+                android:strokeLineJoin="round" />
+        </group>
+        <group
+            android:pivotX="57.6"
+            android:pivotY="51.1"
+            android:scaleX="0.615"
+            android:scaleY="0.615"
+            android:translateX="0.04"
+            android:translateY="8.3">
+            <path
+                android:pathData="M37,65 L47,55 L55,62 L70,46"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="6"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round" />
+            <path
+                android:pathData="M78.2,37.2 L75.1,50.8 L64.9,41.2 Z"
+                android:fillColor="#FFFFFFFF"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="2"
+                android:strokeLineJoin="round" />
+        </group>
+    </group>
+</vector>
