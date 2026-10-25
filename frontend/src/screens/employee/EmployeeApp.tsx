@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icons'
 import {
-  AppHeader, Avatar, AvatarButton, BottomNav, Button, Card, CardButton, DetailRow, EmptyState,
-  IconButton, IconTile, List, ListRow, LogoutButton, Notice, Page, ProgressBar, Section,
+  Avatar, BottomNav, Button, Card, DetailRow, EmptyState,
+  IconTile, List, ListRow, LogoutButton, Notice, Page, Section,
   Segmented, Spinner, StatusBadge, Tag, TopBar, useToast,
 } from '../../components/ui'
 import type {
   DashboardData, DocType, Employee, EmployeeDocument, LeaveBalance, LeaveRequest, Timesheet,
 } from '../../data/types'
 import {
-  currentWorkWeek, firstName, formatDate, formatShortDate, greeting, monthLabel, plural, toIsoDate,
+  firstName, formatDate, formatShortDate, plural, toIsoDate,
 } from '../../lib/format'
 import type { ApiError } from '../../lib/api'
 import { saveDownloadedFile, savedMessage } from '../../lib/fileSave'
@@ -31,15 +31,16 @@ import TimesheetScreen from './TimesheetScreen'
 import LeaveScreen from './LeaveScreen'
 import { getMyLeaveBalances, getMyLeaveRequests, toLeaveBalance, toLeaveRequest, type LeaveBalanceRecord } from '../../lib/leave'
 import WeeklyTimesheetHistory from './WeeklyTimesheetHistory'
+import HomeScreen from './HomeDashboard'
 import Dropdown from '../../components/Dropdown'
-import { canOpenWeek, monthWeeks, weekCount, type MonthWeekStatus } from '../../lib/timesheetHistory'
+import { weekCount, type MonthWeekStatus } from '../../lib/timesheetHistory'
 import ChangePasswordScreen from '../shared/ChangePasswordScreen'
 import { getMyProfile, withProfileRecord } from '../../lib/profile'
 import {
   clearAllNotifications, clearNotification, listMyNotifications, markAllNotificationsRead, markNotificationRead,
   notificationTarget, timeAgo, type NotificationRecord,
 } from '../../lib/notifications'
-import { listMyHolidays, upcomingHolidays, type HolidayRecord } from '../../lib/workCalendar'
+import { listMyHolidays, type HolidayRecord } from '../../lib/workCalendar'
 import { loadMyPhoto } from '../../lib/photos'
 import { notifyDownloaded, notifyNewInbox, setInboxOpener } from '../../lib/systemNotifications'
 import { App as CapacitorApp } from '@capacitor/app'
@@ -788,247 +789,6 @@ function useEmployeeTheme() {
   return { choice, theme, choose }
 }
 
-/* ---------- Home dashboard ---------- */
-
-function HomeScreen({
-  user, photoUrl, unread, holidays, holidaysLoading, myTimesheets, myDocs, pendingTsCount, pendingLeaveCount, payslips,
-  leaveBalance, weeklyOffs, onOpen, onOpenWeek, onOpenDocs, onOpenRequests, onOpenProfile, onDownload,
-}: {
-  user: Employee
-  /** The employee's weekly offs this week (from their HR schedule), or null while loading. */
-  weeklyOffs: string[] | null
-  photoUrl: string | null
-  unread: number
-  holidays: HolidayRecord[]
-  holidaysLoading: boolean
-  myTimesheets: Timesheet[]
-  myDocs: EmployeeDocument[]
-  pendingTsCount: number
-  pendingLeaveCount: number
-  payslips: EmployeeDocument[]
-  leaveBalance: LeaveBalance[]
-  onOpen: (s: SubScreen) => void
-  /** Opens the timesheet on the week starting this Monday. */
-  onOpenWeek: (weekStart: string) => void
-  onOpenDocs: (f: DocFilter) => void
-  onOpenRequests: (v: 'timesheets' | 'leaves') => void
-  /** The header shortcut: opens the same Profile screen as the footer tab. */
-  onOpenProfile: () => void
-  onDownload: (doc: EmployeeDocument) => void
-}) {
-  const now = new Date()
-  const month = toIsoDate(now).slice(0, 7)
-  const monthEntries = myTimesheets.filter((t) => t.date.startsWith(month) && t.status !== 'Rejected')
-  const monthHours = monthEntries.reduce((s, t) => s + t.hours, 0)
-  const week = currentWorkWeek(now, weeklyOffs)
-  const monthWeekList = monthWeeks(myTimesheets, toIsoDate(now))
-  const weekHours = week.reduce((s, d) => s + (myTimesheets.find((t) => t.date === d.iso)?.hours ?? 0), 0)
-  const totalLeft = leaveBalance.reduce((s, b) => s + b.left, 0)
-  const latestPayslip = payslips[0]
-  const nextHoliday = upcomingHolidays(holidays, toIsoDate(now))[0]
-  const rejectedTs = myTimesheets.filter((t) => t.status === 'Rejected').length
-
-  const statusLine =
-    rejectedTs > 0
-      ? `${plural(rejectedTs, 'timesheet')} rejected, needs changes`
-      : pendingTsCount > 0
-        ? `${plural(pendingTsCount, 'timesheet')} awaiting approval`
-        : myTimesheets.length === 0
-          ? 'No timesheets submitted yet'
-          : 'All timesheets approved'
-  const statusDot =
-    rejectedTs > 0 ? 'bg-rejected' : pendingTsCount > 0 ? 'bg-pending' : myTimesheets.length === 0 ? 'bg-accent' : 'bg-approved'
-
-  // "pending" explains when HR issues each document if it isn't uploaded yet.
-  const keyDocs: { type: DocType; label: string; pending: string }[] = [
-    { type: 'Offer Letter', label: 'Offer letter', pending: 'Not uploaded yet' },
-    { type: 'Experience Letter', label: 'Experience letter', pending: 'Issued when you leave' },
-    { type: 'Form 16', label: 'Form 16', pending: 'Issued after each financial year' },
-  ]
-
-  return (
-    <>
-      <AppHeader
-        start={
-          <>
-            <AvatarButton name={user.name} label="Open your profile" onClick={onOpenProfile} photoUrl={photoUrl} />
-            <IconButton icon="bell" label={`Notifications, ${unread} unread`} count={unread} onClick={() => onOpen('notifications')} />
-          </>
-        }
-      />
-
-      <div className="px-5 pt-3">
-        <p className="text-[14px] text-ink-muted">{greeting()},</p>
-        <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink">{user.displayName ?? user.name}</h1>
-      </div>
-
-      {/* Summary panel */}
-      <section className="px-5 pt-5">
-        <div className="rounded-2xl bg-navy-900 p-5 text-white shadow-raised">
-          <div className="flex items-center justify-between">
-            <p className="text-[13px] font-medium text-mist-300">{monthLabel(now)}</p>
-            <p className="text-[12px] text-mist-300">{user.department}</p>
-          </div>
-          <div className="mt-4 flex items-end gap-2">
-            <span className="tnum text-[40px] font-semibold leading-none tracking-tight">{monthHours}</span>
-            <span className="pb-1 text-[14px] text-mist-200">hours logged this month</span>
-          </div>
-          <button
-            onClick={() => onOpenRequests('timesheets')}
-            className="mt-4 flex w-full items-center gap-2 rounded-lg bg-white/[0.07] px-3 py-2.5 text-left text-[13px] text-mist-100 ring-1 ring-inset ring-white/10 hover:bg-white/10"
-          >
-            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot}`} />
-            <span className="flex-1">{statusLine}</span>
-            <Icon name="chevronRight" className="h-4 w-4 text-mist-300" />
-          </button>
-          <Button variant="onDark" size="lg" onClick={() => onOpen('timesheet')} className="mt-4 w-full">
-            <Icon name="clock" className="h-[18px] w-[18px]" /> Submit timesheet
-          </Button>
-        </div>
-      </section>
-
-      {/* Summary cards: wide timesheet card, then leave beside payslips and documents */}
-      <section className="space-y-3 px-5 pt-3">
-        <div className="card-surface rounded-2xl border border-line p-4">
-          <button type="button" onClick={() => onOpen('timesheet')} aria-label="Timesheet, this week" className="press flex w-full items-center gap-3 text-left transition-transform duration-150">
-            <IconTile icon="clock" />
-            <div className="flex-1">
-              <p className="text-[15px] font-semibold text-ink">Timesheet</p>
-              <p className="tnum text-[13px] text-ink-muted">{weekHours} h this week</p>
-            </div>
-            <Icon name="chevronRight" className="h-[18px] w-[18px] text-ink-muted/70" />
-          </button>
-          {/* This month, week by week (same bars as before, one per week): each week's
-              status comes from all of its saved days. Tapping a week opens that week. */}
-          <div className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${monthWeekList.length}, minmax(0, 1fr))` }}>
-            {monthWeekList.map((w) => {
-              const bar = w.status === 'Approved' ? 'bg-approved' : w.status === 'Rejected' ? 'bg-rejected' : w.status === 'Pending' ? 'bg-pending' : null
-              const openable = canOpenWeek(w.weekStart, toIsoDate(now))
-              return (
-                <button
-                  key={w.weekStart}
-                  type="button"
-                  disabled={!openable}
-                  onClick={() => onOpenWeek(w.weekStart)}
-                  aria-label={`${w.label} (${w.range}): ${w.status}. ${openable ? 'Open this week' : 'Opens when the week starts'}`}
-                  className="press flex min-w-0 flex-col items-center gap-1.5 rounded-lg transition-transform duration-150 disabled:cursor-default"
-                >
-                  <div
-                    className={`flex h-10 w-full items-end overflow-hidden rounded-md ${bar ? 'bg-mist-50' : 'bg-mist-50 ring-1 ring-inset ring-line'}`}
-                  >
-                    {bar && <div className={`h-full w-full rounded-md ${bar}`} />}
-                  </div>
-                  <span className={`whitespace-nowrap text-[11px] ${w.current ? 'font-semibold text-navy-900' : 'text-ink-muted'}`}>{w.label}</span>
-                </button>
-              )
-            })}
-          </div>
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-muted">
-            <Legend className="bg-approved" label="Approved" />
-            <Legend className="bg-pending" label="Pending" />
-            <Legend className="bg-rejected" label="Rejected" />
-            <Legend className="bg-mist-50 ring-1 ring-inset ring-line" label="Not submitted" />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-[1.15fr_1fr] gap-3">
-          <CardButton onClick={() => onOpen('leave')} className="flex flex-col p-4" label="Leave">
-            <IconTile icon="calendar" />
-            <p className="mt-3 text-[15px] font-semibold text-ink">Leave</p>
-            <p className="tnum text-[13px] text-ink-muted">
-              {leaveBalance.length ? `${totalLeft} days available` : 'Balance not set up yet'}
-            </p>
-            <div className="mt-auto space-y-2 pt-4">
-              {leaveBalance.map((b) => (
-                <div key={b.type}>
-                  <div className="tnum mb-1 flex justify-between text-[11px] text-ink-muted">
-                    <span>{b.type}</span>
-                    <span>{b.left}/{b.total}</span>
-                  </div>
-                  <ProgressBar value={b.left} max={b.total} />
-                </div>
-              ))}
-            </div>
-          </CardButton>
-
-          <div className="grid gap-3">
-            <CardButton onClick={() => onOpen('payslips')} className="p-4" label="Payslips">
-              <IconTile icon="receipt" />
-              <p className="mt-3 text-[15px] font-semibold text-ink">Payslips</p>
-              <p className="truncate text-[13px] text-ink-muted">
-                {latestPayslip ? `Latest: ${latestPayslip.title.replace('Payslip - ', '').replace(' 2026', '')}` : 'None yet'}
-              </p>
-            </CardButton>
-            {/* Holiday calendar (Documents stay one tap away in the bottom bar and below). */}
-            <CardButton onClick={() => onOpen('holidays')} className="p-4" label="Holiday calendar">
-              <IconTile icon="calendar" />
-              <p className="mt-3 text-[15px] font-semibold text-ink">Holidays</p>
-              <p className="truncate text-[13px] text-ink-muted">
-                {holidaysLoading
-                  ? 'Loading…'
-                  : nextHoliday
-                    ? `${formatShortDate(nextHoliday.date)} · ${nextHoliday.name}`
-                    : holidays.length
-                      ? 'No more this year'
-                      : 'None published yet'}
-              </p>
-            </CardButton>
-          </div>
-        </div>
-      </section>
-
-      {/* Key documents */}
-      <Section title="Your documents" action={<TextLink onClick={() => onOpenDocs('All')}>View all</TextLink>}>
-        <List>
-          {keyDocs.map(({ type, label, pending }) => {
-            const doc = myDocs.find((d) => d.type === type)
-            return (
-              <ListRow
-                key={type}
-                icon="file"
-                title={label}
-                subtitle={doc ? `Issued ${formatDate(doc.issuedOn)}` : pending}
-                onClick={() => onOpenDocs(type)}
-                right={
-                  doc ? (
-                    <button
-                      onClick={() => onDownload(doc)}
-                      aria-label={`Download ${label}`}
-                      className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-navy-700 hover:bg-mist-50"
-                    >
-                      <Icon name="download" className="h-[18px] w-[18px]" />
-                    </button>
-                  ) : (
-                    <StatusBadge status="Not issued" />
-                  )
-                }
-              />
-            )
-          })}
-        </List>
-      </Section>
-
-      {/* Request tracking */}
-      <Section title="Track requests">
-        <List>
-          <ListRow
-            icon="list"
-            title="Timesheet approvals"
-            subtitle={pendingTsCount ? `${pendingTsCount} pending` : 'Nothing pending'}
-            onClick={() => onOpenRequests('timesheets')}
-          />
-          <ListRow
-            icon="calendar"
-            title="Leave applications"
-            subtitle={pendingLeaveCount ? `${pendingLeaveCount} pending` : 'Nothing pending'}
-            onClick={() => onOpenRequests('leaves')}
-          />
-        </List>
-      </Section>
-    </>
-  )
-}
-
 /* ---------- Small pieces used above ---------- */
 
 function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -1092,15 +852,6 @@ function WeekStatusPill({ status }: { status: MonthWeekStatus }) {
     )
   }
   return <StatusBadge status={status} />
-}
-
-function Legend({ className, label }: { className: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className={`h-2 w-2 rounded-sm ${className}`} />
-      {label}
-    </span>
-  )
 }
 
 function TextLink({ children, onClick }: { children: ReactNode; onClick: () => void }) {

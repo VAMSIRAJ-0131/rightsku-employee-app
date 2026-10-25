@@ -43,7 +43,6 @@ const paths: Record<IconName, string[]> = {
   lock: ['M6 10.75h12v9H6z', 'M8.75 10.75V8a3.25 3.25 0 0 1 6.5 0v2.75'],
   receipt: ['M6.25 3.75h11.5v16.5l-2.4-1.5-2.35 1.5-2.4-1.5-2.35 1.5-2-1.5z', 'M9.25 8.5h5.5', 'M9.25 12h5.5', 'M9.25 15.5h3'],
   checkCircle: [circle(12, 12, 8.25), 'M8.5 12.25l2.4 2.4 4.6-4.9'],
-  // An ID card: the card, a square photo and two lines of text.
   // A portrait employee badge: clip slot, photo, two lines of text.
   idBadge: [
     'M7 3.75h10a1.75 1.75 0 0 1 1.75 1.75v13a1.75 1.75 0 0 1-1.75 1.75H7A1.75 1.75 0 0 1 5.25 18.5v-13A1.75 1.75 0 0 1 7 3.75z',
@@ -52,6 +51,7 @@ const paths: Record<IconName, string[]> = {
     'M9 15.5h6',
     'M10 17.5h4',
   ],
+  // An ID card: the card, a square photo and two lines of text.
   idCard: ['M3.75 5.75h16.5v12.5H3.75z', 'M6.75 9h4.5v5.5h-4.5z', 'M13.75 10h3.5', 'M13.75 13.5h3.5'],
 }
 

@@ -59,7 +59,7 @@ export function BrandMark({ tone = 'dark' }: { tone?: 'dark' | 'light' }) {
  */
 export function AppHeader({ start }: { start: ReactNode }) {
   return (
-    <header className="border-b border-line bg-white pt-[env(safe-area-inset-top)]">
+    <header className="bg-canvas pt-[env(safe-area-inset-top)]">
       <div className="flex h-16 items-center justify-between gap-3 pl-4 pr-5">
         <div className="flex shrink-0 items-center gap-1">{start}</div>
         <Logo className="h-8 min-w-0 shrink sm:h-9" />
@@ -164,16 +164,22 @@ export function CardButton({ children, onClick, className = '', label }: { child
   )
 }
 
-/** Small square icon holder used inside cards and rows. */
-export function IconTile({ icon, tone = 'mist' }: { icon: IconName; tone?: 'mist' | 'navy' | 'accent' }) {
-  const tones = {
+export type IconTileTone = 'mist' | 'navy' | 'accent' | 'blue' | 'lavender' | 'gold'
+
+/** Small square icon holder used inside cards and rows. "lg" is the Home dashboard size. */
+export function IconTile({ icon, tone = 'mist', size = 'md' }: { icon: IconName; tone?: IconTileTone; size?: 'md' | 'lg' }) {
+  const tones: Record<IconTileTone, string> = {
     mist: 'bg-mist-50 text-navy-700 ring-1 ring-inset ring-mist-100',
     navy: 'gloss-navy text-white',
     accent: 'bg-accent-soft text-accent',
+    blue: 'bg-royal-50 text-royal-600 ring-1 ring-inset ring-royal-100',
+    lavender: 'bg-lavender-50 text-lavender-600 ring-1 ring-inset ring-lavender-100',
+    gold: 'bg-gold-50 text-gold-600 ring-1 ring-inset ring-gold-100',
   }
+  const sizes = { md: 'h-9 w-9 rounded-lg', lg: 'h-10 w-10 rounded-xl' }
   return (
-    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${tones[tone]}`}>
-      <Icon name={icon} className="h-[18px] w-[18px]" />
+    <span className={`grid shrink-0 place-items-center ${sizes[size]} ${tones[tone]}`}>
+      <Icon name={icon} className={size === 'lg' ? 'h-5 w-5' : 'h-[18px] w-[18px]'} />
     </span>
   )
 }
@@ -486,7 +492,7 @@ export function BottomNav<T extends string>({
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-20 mx-auto w-full max-w-md border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-20 mx-auto w-full max-w-md border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-6px_20px_-12px_rgb(15_30_56/0.18)] backdrop-blur"
     >
       <div className="grid" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map((item) => {
@@ -497,10 +503,10 @@ export function BottomNav<T extends string>({
               onClick={() => onChange(item.id)}
               aria-current={on ? 'page' : undefined}
               className={`relative flex h-16 flex-col items-center justify-center gap-0.5 text-[12px] ${
-                on ? 'font-semibold text-navy-900' : 'font-medium text-ink-muted'
+                on ? 'font-semibold text-royal-600' : 'font-medium text-ink-muted'
               }`}
             >
-              {/* The active tab gets a soft pill behind its icon. */}
+              {/* The active tab gets a pale blue pill behind its royal-blue icon. */}
               <span
                 className={`relative grid h-8 w-14 place-items-center rounded-full transition-colors duration-200 ${
                   on ? 'tab-pill-on' : ''

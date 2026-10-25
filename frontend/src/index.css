@@ -54,6 +54,19 @@
   --color-rejected-soft: #fce6e4;
   --color-rejected-ink: #a33d37;
 
+  /* Dashboard accents: royal blue for active and links, plus the pale blue,
+     lavender and gold tints of the Home cards and their icon tiles. */
+  --color-royal-700: #1f47b0;
+  --color-royal-600: #2554cc;
+  --color-royal-50: #eaf0fd;
+  --color-royal-100: #d9e4fb;
+  --color-lavender-50: #f1edfb;
+  --color-lavender-100: #e4dcf7;
+  --color-lavender-600: #6447c0;
+  --color-gold-50: #fbf3e1;
+  --color-gold-100: #f4e4be;
+  --color-gold-600: #a26f1f;
+
   --shadow-card: 0 1px 2px rgba(15, 30, 56, 0.04), 0 1px 1px rgba(15, 30, 56, 0.03);
   --shadow-raised: 0 8px 24px -12px rgba(15, 30, 56, 0.35);
 }
@@ -204,10 +217,63 @@ button {
   box-shadow: inset 0 1px 0 #fff, 0 1px 2px rgb(15 30 56 / 0.12), 0 2px 6px -2px rgb(15 30 56 / 0.15);
 }
 
-/* The active bottom-bar tab's pill. */
+/* The active bottom-bar tab's pill: pale blue behind the royal-blue icon. */
 .tab-pill-on {
-  background-image: linear-gradient(180deg, #eef3fa 0%, #dde6f2 100%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.85), inset 0 -1px 0 rgb(15 30 56 / 0.05);
+  background-color: var(--color-royal-50);
+  background-image: linear-gradient(180deg, #f0f5fe 0%, #e3ebfc 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.85), inset 0 -1px 0 rgb(37 84 204 / 0.06);
+}
+
+/* ---------- Home dashboard ---------- */
+
+/* The month summary: deep navy into royal blue, with a soft light glow top right. */
+.hero-card {
+  background-color: var(--color-navy-900);
+  background-image:
+    radial-gradient(120% 90% at 100% 0%, rgb(86 136 255 / 0.38) 0%, rgb(86 136 255 / 0) 55%),
+    radial-gradient(80% 70% at 0% 100%, rgb(37 84 204 / 0.35) 0%, rgb(37 84 204 / 0) 60%),
+    linear-gradient(150deg, #0f1e38 0%, #142a57 50%, #1c3d8a 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    0 2px 4px rgb(10 21 40 / 0.12),
+    0 18px 36px -18px rgb(15 35 90 / 0.65);
+}
+
+/* The white "Submit timesheet" button on the month card (white in both themes). */
+.hero-button {
+  color: var(--color-navy-900);
+  background-color: #fff;
+  background-image: linear-gradient(180deg, #ffffff 0%, #f3f6fc 100%);
+  box-shadow: inset 0 1px 0 #fff, 0 6px 16px -8px rgb(0 0 0 / 0.45);
+}
+.hero-button svg {
+  color: var(--color-royal-600);
+}
+html[data-theme='dark'] .hero-button {
+  color: #0f1e38;
+}
+html[data-theme='dark'] .hero-button svg {
+  color: #2554cc;
+}
+
+/* White cards with a whisper of colour at the bottom (Leave, Payslips, Holidays). */
+.tint-blue,
+.tint-lavender,
+.tint-gold {
+  background-color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 1px 2px rgb(15 30 56 / 0.05),
+    0 12px 26px -18px rgb(15 30 56 / 0.28);
+}
+.tint-blue {
+  background-image: linear-gradient(180deg, #ffffff 0%, #ffffff 45%, #eef3fe 100%);
+}
+.tint-lavender {
+  background-image: linear-gradient(160deg, #ffffff 0%, #ffffff 40%, #f1ecfc 100%);
+}
+.tint-gold {
+  background-image: linear-gradient(160deg, #ffffff 0%, #ffffff 40%, #fcf3df 100%);
 }
 
 /* Pop-ups: a rounded sheet that rises in over a fading backdrop. */
@@ -277,6 +343,17 @@ html[data-theme='dark'] {
   --color-rejected: #c96a64;
   --color-rejected-soft: #3a1b1b;
   --color-rejected-ink: #f3a6a0;
+
+  --color-royal-700: #a9c1fb;
+  --color-royal-600: #8fb0fa;
+  --color-royal-50: #18284a;
+  --color-royal-100: #22355e;
+  --color-lavender-50: #221d3d;
+  --color-lavender-100: #2e2752;
+  --color-lavender-600: #b9a6f2;
+  --color-gold-50: #2b2414;
+  --color-gold-100: #3a301a;
+  --color-gold-600: #e2b768;
 
   --surface: #121c2e;
   --surface-top: #17233a;
@@ -350,8 +427,27 @@ html[data-theme='dark'] .tab-on {
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.4);
 }
 html[data-theme='dark'] .tab-pill-on {
-  background-image: linear-gradient(180deg, #2a3c5d 0%, #22324f 100%);
+  background-image: linear-gradient(180deg, #22355e 0%, #1b2b4d 100%);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+html[data-theme='dark'] .hero-card {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1), 0 0 0 1px rgb(255 255 255 / 0.04), 0 18px 36px -18px rgb(0 0 0 / 0.8);
+}
+html[data-theme='dark'] :is(.tint-blue, .tint-lavender, .tint-gold) {
+  background-color: var(--surface);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 1px 2px rgb(0 0 0 / 0.3),
+    0 10px 24px -18px rgb(0 0 0 / 0.7);
+}
+html[data-theme='dark'] .tint-blue {
+  background-image: linear-gradient(180deg, var(--surface-top) 0%, var(--surface) 50%, #15244a 100%);
+}
+html[data-theme='dark'] .tint-lavender {
+  background-image: linear-gradient(160deg, var(--surface-top) 0%, var(--surface) 45%, #1f1a3c 100%);
+}
+html[data-theme='dark'] .tint-gold {
+  background-image: linear-gradient(160deg, var(--surface-top) 0%, var(--surface) 45%, #2a2214 100%);
 }
 html[data-theme='dark'] .sheet {
   background-color: var(--surface);
