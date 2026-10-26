@@ -4,7 +4,7 @@ export type IconName =
   | 'home' | 'clock' | 'calendar' | 'wallet' | 'folder' | 'file' | 'bell' | 'user' | 'users'
   | 'list' | 'logout' | 'check' | 'x' | 'upload' | 'download' | 'shield' | 'chart'
   | 'chevronRight' | 'arrowLeft' | 'eye' | 'eyeOff' | 'search' | 'plus' | 'info' | 'alert'
-  | 'inbox' | 'mail' | 'phone' | 'pin' | 'briefcase' | 'lock' | 'receipt' | 'checkCircle' | 'idCard' | 'idBadge'
+  | 'inbox' | 'mail' | 'phone' | 'pin' | 'briefcase' | 'lock' | 'receipt' | 'checkCircle' | 'idCard' | 'idBadge' | 'fingerprint' | 'trash' | 'backspace'
 
 const circle = (cx: number, cy: number, r: number) =>
   `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`
@@ -52,14 +52,27 @@ const paths: Record<IconName, string[]> = {
     'M10 17.5h4',
   ],
   // An ID card: the card, a square photo and two lines of text.
+  trash: ['M4.75 7h14.5', 'M9.75 4.25h4.5', 'M6.75 7l.85 12.1a1.25 1.25 0 0 0 1.25 1.15h6.3a1.25 1.25 0 0 0 1.25-1.15L17.25 7', 'M10 11v5.5', 'M14 11v5.5'],
+  // Delete one digit: a key shape pointing left, with a cross.
+  backspace: ['M9.25 5.75h9.5a1.5 1.5 0 0 1 1.5 1.5v9.5a1.5 1.5 0 0 1-1.5 1.5h-9.5L3.75 12z', 'M11.75 9.5l5 5', 'M16.75 9.5l-5 5'],
+  // A fingerprint: curved ridges around a centre line.
+  fingerprint: [
+    'M5 12.5V12a7 7 0 0 1 11.2-5.6',
+    'M18.6 9.2c.27.9.4 1.85.4 2.8v1.25',
+    'M7.4 18.6c.6-1.4.85-2.95.85-4.6V12a3.75 3.75 0 0 1 7.5 0v1.5',
+    'M12 12v2c0 2.55-.6 4.6-1.9 6.25',
+    'M15.6 16.75c-.2 1.1-.55 2.15-1.05 3.1',
+    'M18.75 16.5c-.1.55-.22 1.1-.38 1.62',
+  ],
   idCard: ['M3.75 5.75h16.5v12.5H3.75z', 'M6.75 9h4.5v5.5h-4.5z', 'M13.75 10h3.5', 'M13.75 13.5h3.5'],
 }
 
-export function Icon({ name, className = 'h-5 w-5' }: { name: IconName; className?: string }) {
+/** filled: also fills the shape (used for the active bottom-bar tab). */
+export function Icon({ name, className = 'h-5 w-5', filled = false }: { name: IconName; className?: string; filled?: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      fill="none"
+      fill={filled ? 'currentColor' : 'none'}
       stroke="currentColor"
       strokeWidth={1.6}
       strokeLinecap="round"

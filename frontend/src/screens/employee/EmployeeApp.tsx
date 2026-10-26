@@ -56,6 +56,7 @@ export default function EmployeeApp({
   user: sessionUser,
   data,
   token,
+  appLock,
   onLogout,
   onSessionExpired,
   onPasswordChanged,
@@ -64,6 +65,8 @@ export default function EmployeeApp({
   data: DashboardData
   /** JWT for API calls. Memory only. */
   token: string
+  /** Android app only: Profile → App lock (PIN / fingerprint to stay signed in). */
+  appLock?: { label: string; onOpen: () => void }
   onLogout: () => void
   onSessionExpired: () => void
   /** The password was changed: every session has ended, so the app returns to sign-in. */
@@ -200,14 +203,23 @@ export default function EmployeeApp({
     if (sub !== 'leave') setLeaveTab('leave')
   }, [sub])
 
-  // This year's company holidays (published by HR).
+  // Company holidays published by HR for this year and next year, so that late
+  // in December the next holiday (e.g. New Year, Sankranti) is already known.
   useEffect(() => {
     const controller = new AbortController()
-    listMyHolidays(token, new Date().getFullYear(), controller.signal).then((result) => {
-      if (controller.signal.aborted) return
-      if (result.ok) setHolidayState({ status: 'ready', items: result.data })
-      else setHolidayState({ status: 'error', message: handleError(result.error).message })
-    })
+    const year = new Date().getFullYear()
+    Promise.all([listMyHolidays(token, year, controller.signal), listMyHolidays(token, year + 1, controller.signal)]).then(
+      ([thisYear, nextYear]) => {
+        if (controller.signal.aborted) return
+        if (!thisYear.ok) {
+          setHolidayState({ status: 'error', message: handleError(thisYear.error).message })
+          return
+        }
+        // Next year's list is a bonus: if it fails, this year's still shows.
+        const items = nextYear.ok ? [...thisYear.data, ...nextYear.data] : thisYear.data
+        setHolidayState({ status: 'ready', items: items.sort((a, b) => a.date.localeCompare(b.date)) })
+      },
+    )
     return () => controller.abort()
   }, [token, version, handleError])
 
@@ -354,6 +366,14 @@ export default function EmployeeApp({
   const payslips = myDocs.filter((d) => d.type === 'Payslip')
 
   const goTab = (next: Tab) => dispatch({ type: 'tab', tab: next })
+  // The timesheet asks to save typed hours before the bottom tabs take the employee away.
+  const leaveGuard = useRef<((proceed: () => void) => boolean) | null>(null)
+  const registerLeaveGuard = useCallback((g: ((proceed: () => void) => boolean) | null) => {
+    leaveGuard.current = g
+  }, [])
+  const goTabGuarded = (next: Tab) => {
+    if (!leaveGuard.current?.(() => goTab(next))) goTab(next)
+  }
   /** The previous screen, or Home when there is none. */
   const goBack = () => dispatch({ type: 'back' })
 
@@ -448,6 +468,7 @@ export default function EmployeeApp({
         onBack={() => setSub(null)}
         onError={handleError}
         onSubmitted={() => setVersion((v) => v + 1)}
+        registerLeaveGuard={registerLeaveGuard}
       />
     )
   } else if (sub === 'leave') {
@@ -566,7 +587,13 @@ export default function EmployeeApp({
     const today = toIsoDate(new Date())
     screen = (
       <>
-        <TopBar title="Holiday calendar" subtitle={`${new Date().getFullYear()} company holidays`} onBack={() => setSub(null)} />
+        <TopBar
+          title="Holiday calendar"
+          subtitle={holidays.some((h) => h.date.slice(0, 4) !== String(new Date().getFullYear()))
+            ? `${new Date().getFullYear()} and ${new Date().getFullYear() + 1} company holidays`
+            : `${new Date().getFullYear()} company holidays`}
+          onBack={() => setSub(null)}
+        />
         <Section>
           {holidayState.status === 'error' ? (
             <LoadError message={holidayState.message} onRetry={() => setVersion((v) => v + 1)} />
@@ -719,6 +746,7 @@ export default function EmployeeApp({
         </Section>
         <Section title="Security">
           <List>
+            {appLock && <ListRow icon="fingerprint" title="App lock" subtitle={appLock.label} onClick={appLock.onOpen} />}
             <ListRow icon="lock" title="Change password" subtitle="At least 8 characters" onClick={() => setSub('password')} />
           </List>
         </Section>
@@ -743,7 +771,7 @@ export default function EmployeeApp({
           { id: 'profile', label: 'Profile', icon: 'user' },
         ]}
         active={tab}
-        onChange={goTab}
+        onChange={goTabGuarded}
       />
       {toast}
     </Page>
@@ -834,6 +862,8 @@ function HolidayRow({ holiday, past }: { holiday: HolidayRecord; past: boolean }
         <span className="block truncate text-[15px] font-medium text-ink">{holiday.name}</span>
         <span className="block text-[13px] text-ink-muted">
           {weekday}
+          {/* Next year's holidays say which year they are in. */}
+          {date.getFullYear() !== new Date().getFullYear() ? ` · ${date.getFullYear()}` : ''}
           {past ? ' · Past' : ''}
         </span>
       </span>

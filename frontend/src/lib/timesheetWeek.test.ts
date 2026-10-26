@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from './api'
 import {
   CONFIRM_SUBMIT_MESSAGE, DRAFT_SAVED_MESSAGE, SUBMITTED_MESSAGE, createWeekActions, errorsFromServer, formatDayLong,
-  getMyWeek, prepareWeek, saveWeekDraft, startingHours, submitMyWeek, weekTotals,
+  getMyWeek, hasUnsavedChanges, prepareWeek, saveWeekDraft, startingHours, submitMyWeek, weekTotals,
   type WeekBody, type WeekData, type WeekDayData, type WeekStatus,
 } from './timesheetWeek'
 
@@ -137,9 +137,10 @@ describe('weekly target and totals', () => {
 /* ---------- Boxes and checks ---------- */
 
 describe('hours boxes and checks', () => {
-  it('a new week starts filled with each day\'s expected hours; a draft starts with what was saved', () => {
+  it('a new week starts empty; a draft starts with what was saved', () => {
+    // Nothing is filled in for the employee: a new week starts empty (shown as 0).
     expect(startingHours(serverWeek('WW½WHOO'))).toEqual({
-      '2026-10-05': '9', '2026-10-06': '9', '2026-10-07': '4.5', '2026-10-08': '9',
+      '2026-10-05': '', '2026-10-06': '', '2026-10-07': '', '2026-10-08': '',
     })
     const draft = serverWeek(NORMAL, { status: 'DRAFT', hours: { '2026-10-05': 8.5, '2026-10-06': 9 } })
     expect(startingHours(draft)).toEqual({
@@ -378,5 +379,31 @@ describe('Submit for approval', () => {
     expect(confirm).toHaveBeenCalledTimes(1)
     expect(submit).toHaveBeenCalledTimes(1)
     expect(saveDraft).not.toHaveBeenCalled()
+  })
+})
+
+describe('hasUnsavedChanges', () => {
+  const saved = { hours: { '2026-10-05': '9', '2026-10-06': '' }, description: 'Release work' }
+
+  it('is false while nothing differs from what was saved', () => {
+    expect(hasUnsavedChanges(saved, { '2026-10-05': '9', '2026-10-06': '' }, 'Release work')).toBe(false)
+    expect(hasUnsavedChanges(saved, { '2026-10-05': ' 9 ' }, 'Release work ')).toBe(false)
+  })
+
+  it('notices typed hours and a changed description', () => {
+    expect(hasUnsavedChanges(saved, { '2026-10-05': '9', '2026-10-06': '8' }, 'Release work')).toBe(true)
+    expect(hasUnsavedChanges(saved, { '2026-10-05': '', '2026-10-06': '' }, 'Release work')).toBe(true)
+    expect(hasUnsavedChanges(saved, { '2026-10-05': '9', '2026-10-06': '' }, 'Testing')).toBe(true)
+  })
+})
+
+describe('only today open', () => {
+  it('counts the hours saved on earlier days, which can no longer be changed', () => {
+    // Wednesday 7 Oct: Monday and Tuesday were saved on their own days, today is typed now.
+    const base = serverWeek(NORMAL, { status: 'DRAFT', today: '2026-10-07', hours: { '2026-10-05': 9, '2026-10-06': 8 } })
+    const week = { ...base, days: base.days.map((d) => ({ ...d, editable: d.date === '2026-10-07' })) }
+    expect(startingHours(week)).toEqual({ '2026-10-07': '' })
+    expect(weekTotals(week, { '2026-10-07': '7.5' }).entered).toBe(24.5)
+    expect(weekTotals(week, {}).entered).toBe(17)
   })
 })

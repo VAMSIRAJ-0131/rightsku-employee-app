@@ -59,6 +59,8 @@ class TimesheetServiceTest {
     private WorkScheduleRepository schedules;
     private CompanyHolidayRepository holidays;
     private TimesheetService service;
+    /** The same service with the production rule: hours on the day itself only. */
+    private TimesheetService todayOnly;
     private final List<CompanyHoliday> holidayRows = new ArrayList<>();
     private final List<TimesheetEntry> savedEntries = new ArrayList<>();
     private final Map<String, TimesheetWeek> savedWeeks = new HashMap<>();
@@ -77,7 +79,9 @@ class TimesheetServiceTest {
         LeaveDays leaveDays = (employeeId, from, to) -> leave.stream()
                 .filter(l -> !l.date().isBefore(from) && !l.date().isAfter(to)).toList();
         service = new TimesheetService(entries, weeks, employees, calendarService, leaveDays,
-                employeeId -> paidLeaveLeft, CLOCK);
+                employeeId -> paidLeaveLeft, CLOCK, false);
+        todayOnly = new TimesheetService(entries, weeks, employees, calendarService, leaveDays,
+                employeeId -> paidLeaveLeft, CLOCK, true);
 
         employee(10L, 110L, "EMP010", null);  // Ravi: company default (Sat + Sun off, 9 h)
         employee(20L, 120L, "EMP020", null);  // Priya: Friday + Saturday off, 8 h (set below)
@@ -316,14 +320,73 @@ class TimesheetServiceTest {
     }
 
     @Test
-    void thisWeekCanBeSavedIncludingDaysStillToCome() {
-        // Today is Wednesday 14 Oct; Thursday and Friday can already go in the draft.
-        WeekTimesheetResponse saved = service.saveDraft(110L, week(OCT_12, null, weekdays(OCT_12, "9", "9", "9", "9", "9")));
+    void thisWeekOpensDayByDayAndDaysStillToComeTakeNoHours() {
+        // Today is Wednesday 14 Oct: Monday to Wednesday are open, Thursday and Friday not yet.
+        WeekTimesheetResponse open = service.weekMine(110L, d(OCT_12));
+        assertThat(dayOf(open, "2026-10-12").editable()).isTrue();
+        assertThat(dayOf(open, "2026-10-14").editable()).as("today").isTrue();
+        assertThat(dayOf(open, "2026-10-15").editable()).as("tomorrow").isFalse();
+        assertThat(dayOf(open, "2026-10-16").editable()).isFalse();
+        assertThat(open.days()).allSatisfy(day -> assertThat(day.hours()).as("nothing filled in").isNull());
 
-        assertThat(saved.target().enteredHours()).isEqualByComparingTo("45");
+        Throwable thrown = catchThrowable(() -> service.saveDraft(110L, week(OCT_12, null, weekdays(OCT_12, "9", "9", "9", "9", "9"))));
+        assertThat(thrown).isInstanceOf(ApiException.class).hasMessageContaining("You can't enter hours for");
+        assertThat(((ApiException) thrown).getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(savedWeeks).isEmpty();
+
+        WeekTimesheetResponse saved = service.saveDraft(110L, week(OCT_12, null, "2026-10-12=9", "2026-10-13=9", "2026-10-14=9"));
+        assertThat(saved.target().enteredHours()).isEqualByComparingTo("27");
         assertThat(saved.submitOpensOn()).isEqualTo(d("2026-10-16"));
         assertThat(saved.canSubmit()).isFalse();
         assertThat(saved.submitBlockedReason()).isEqualTo("You can submit this week from Fri 16 Oct 2026, its last working day.");
+    }
+
+    /* ---------- Hours on the day itself only (production rule) ---------- */
+
+    @Test
+    void onlyTodayIsOpenForHours() {
+        // Today is Wednesday 14 Oct.
+        WeekTimesheetResponse open = todayOnly.weekMine(110L, d(OCT_12));
+        assertThat(dayOf(open, "2026-10-12").editable()).as("Monday, earlier").isFalse();
+        assertThat(dayOf(open, "2026-10-13").editable()).as("Tuesday, earlier").isFalse();
+        assertThat(dayOf(open, "2026-10-14").editable()).as("today").isTrue();
+        assertThat(dayOf(open, "2026-10-15").editable()).as("tomorrow").isFalse();
+        assertThat(todayOnly.weekMine(110L, d(OCT_5)).days()).as("a past week")
+                .allSatisfy(day -> assertThat(day.editable()).isFalse());
+    }
+
+    @Test
+    void anEarlierDayCanNoLongerBeFilledInOrChanged() {
+        Throwable earlier = catchThrowable(() -> todayOnly.saveDraft(110L, week(OCT_12, null, "2026-10-13=9")));
+        assertApiError(earlier, HttpStatus.BAD_REQUEST, "days[2026-10-13]");
+        assertThat(earlier).hasMessageContaining("Hours can only be entered on the day itself");
+
+        Throwable later = catchThrowable(() -> todayOnly.saveDraft(110L, week(OCT_12, null, "2026-10-15=9")));
+        assertThat(later).hasMessageContaining("You can't enter hours for Thu 15 Oct 2026 yet.");
+        assertThat(savedWeeks).isEmpty();
+    }
+
+    @Test
+    void savingTodayKeepsTheHoursSavedOnEarlierDays() {
+        // Monday and Tuesday were saved on their own days.
+        service.saveDraft(110L, week(OCT_12, null, "2026-10-12=9", "2026-10-13=8"));
+
+        WeekTimesheetResponse saved = todayOnly.saveDraft(110L, week(OCT_12, "Mid-week", "2026-10-14=7.5"));
+
+        assertThat(dayOf(saved, "2026-10-12").hours()).isEqualByComparingTo("9");
+        assertThat(dayOf(saved, "2026-10-13").hours()).isEqualByComparingTo("8");
+        assertThat(dayOf(saved, "2026-10-14").hours()).isEqualByComparingTo("7.5");
+        assertThat(saved.target().enteredHours()).isEqualByComparingTo("24.5");
+
+        // Sending an earlier day again unchanged is fine; changing it is not.
+        todayOnly.saveDraft(110L, week(OCT_12, null, "2026-10-12=9", "2026-10-14=7.5"));
+        Throwable changed = catchThrowable(() -> todayOnly.saveDraft(110L, week(OCT_12, null, "2026-10-12=6")));
+        assertApiError(changed, HttpStatus.BAD_REQUEST, "days[2026-10-12]");
+
+        // Clearing today's box leaves the earlier days as they were.
+        WeekTimesheetResponse cleared = todayOnly.saveDraft(110L, week(OCT_12, null, "2026-10-14="));
+        assertThat(dayOf(cleared, "2026-10-14").hours()).isNull();
+        assertThat(dayOf(cleared, "2026-10-12").hours()).isEqualByComparingTo("9");
     }
 
     /* ---------- Submit for approval ---------- */

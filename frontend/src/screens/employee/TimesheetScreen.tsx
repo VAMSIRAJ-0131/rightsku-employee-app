@@ -14,7 +14,7 @@ import { formatShortDate, monthLabel, toIsoDate } from '../../lib/format'
 import { MAX_DAYS_BACK, MAX_HOURS_PER_DAY, MIN_HOURS_PER_DAY, weekStartOf } from '../../lib/workCalendar'
 import {
   CONFIRM_SUBMIT_MESSAGE, approvedLeaveLabel, createWeekActions, holidayLabel, creditedDay, formatDayLong, formatHours, getMyWeek, saveWeekDraft, startingHours,
-  submitMyWeek, weekTotals,
+  hasUnsavedChanges, submitMyWeek, weekTotals,
   type EmptyMeaning, type WeekActionResult, type WeekData, type WeekDayData, type WeekFormErrors, type WeekTotals,
 } from '../../lib/timesheetWeek'
 
@@ -40,6 +40,7 @@ export default function TimesheetScreen({
   onBack,
   onSubmitted,
   onError,
+  registerLeaveGuard,
 }: {
   token: string
   /** The Monday of the week to open on (from the home card); this week when not given. */
@@ -52,6 +53,12 @@ export default function TimesheetScreen({
   /** Called after the server confirmed a submission, so the history can reload. */
   onSubmitted: () => void
   onError: (error: ApiError) => ApiError
+  /**
+   * Lets the parent check before leaving this screen another way (bottom tabs):
+   * the guard returns true when it stopped to ask about unsaved hours, and
+   * calls proceed once the employee saved or discarded them.
+   */
+  registerLeaveGuard?: (guard: ((proceed: () => void) => boolean) | null) => void
 }) {
   const todayLocal = toIsoDate(new Date())
   const [weekStart, setWeekStart] = useState(() => initialWeekStart ?? weekStartOf(todayLocal))
@@ -66,6 +73,10 @@ export default function TimesheetScreen({
   const [success, setSuccess] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const answer = useRef<((confirmed: boolean) => void) | null>(null)
+  // The week as last loaded or saved, to notice hours typed but not saved.
+  const [saved, setSaved] = useState<{ hours: Record<string, string>; description: string }>({ hours: {}, description: '' })
+  // Leaving with unsaved hours: where to go once the employee saves or discards them.
+  const [leaving, setLeaving] = useState<(() => void) | null>(null)
 
   // One set of actions for the screen: it lets only one request run at a time.
   const actions = useMemo(
@@ -102,9 +113,11 @@ export default function TimesheetScreen({
 
   /** Shows a week from the server: its saved hours, description and status. */
   function show(data: WeekData) {
+    const start = startingHours(data)
     setWeek(data)
-    setHours(startingHours(data))
+    setHours(start)
     setDescription(data.description ?? '')
+    setSaved({ hours: start, description: data.description ?? '' })
     setErrors(NO_ERRORS)
   }
 
@@ -121,8 +134,31 @@ export default function TimesheetScreen({
   // A week submitted as a whole, or one whose working days were all submitted one day at a time.
   const submitted = current?.status === 'SUBMITTED' || current?.status === 'ALREADY_SUBMITTED'
   const locked = !current || submitted || busy !== null || loading
+  const dirty = !!current && !submitted && hasUnsavedChanges(saved, hours, description)
+
+  /** Goes on at once, or first asks to save hours typed but not saved. Returns true when it asked. */
+  function guard(proceed: () => void): boolean {
+    if (!dirty) return false
+    setLeaving(() => proceed)
+    return true
+  }
+  const guardRef = useRef(guard)
+  guardRef.current = guard
+  useEffect(() => {
+    if (!registerLeaveGuard) return
+    registerLeaveGuard((proceed) => guardRef.current(proceed))
+    return () => registerLeaveGuard(null)
+  }, [registerLeaveGuard])
+
+  const back = () => {
+    if (!guard(onBack)) onBack()
+  }
+  const changeWeek = (next: string) => {
+    if (!guard(() => goToWeek(next))) goToWeek(next)
+  }
 
   function setDayHours(iso: string, value: string) {
+    if (current && iso !== current.today) return
     setHours((h) => ({ ...h, [iso]: value }))
     setSuccess(null)
     if (errors.hours[iso] || errors.form) {
@@ -147,14 +183,16 @@ export default function TimesheetScreen({
     }
   }
 
-  async function save() {
-    if (!current || actions.isBusy()) return
+  /** Saves the week as a draft; true when the server saved it. */
+  async function save(): Promise<boolean> {
+    if (!current || actions.isBusy()) return false
     setSuccess(null)
     setErrors(NO_ERRORS)
     setBusy('save')
     const result = await actions.save(current, hours, description)
     setBusy(null)
     handle(result)
+    return result.kind === 'saved'
   }
 
   async function submit() {
@@ -175,13 +213,13 @@ export default function TimesheetScreen({
 
   return (
     <>
-      <TopBar title="Timesheet" subtitle="Log your hours for the week" onBack={onBack} />
+      <TopBar title="Timesheet" subtitle="Log your hours for the week" onBack={back} />
 
       <Section>
         <Card className="flex items-center justify-between px-2 py-1">
           <button
             type="button"
-            onClick={() => goToWeek(shiftDays(weekStart, -7))}
+            onClick={() => changeWeek(shiftDays(weekStart, -7))}
             disabled={weekStart <= oldestWeek || busy !== null}
             aria-label="Previous week"
             className="grid h-11 w-11 place-items-center rounded-full text-ink-soft hover:bg-mist-50 disabled:opacity-30"
@@ -199,7 +237,7 @@ export default function TimesheetScreen({
           </div>
           <button
             type="button"
-            onClick={() => goToWeek(shiftDays(weekStart, 7))}
+            onClick={() => changeWeek(shiftDays(weekStart, 7))}
             disabled={weekStart >= thisWeek || busy !== null}
             aria-label="Next week"
             className="grid h-11 w-11 place-items-center rounded-full text-ink-soft hover:bg-mist-50 disabled:opacity-30"
@@ -241,9 +279,11 @@ export default function TimesheetScreen({
                     key={day.date}
                     day={day}
                     isToday={day.date === current.today}
+                    notYet={day.date > current.today}
+                    past={day.date < current.today}
                     value={hours[day.date] ?? ''}
                     error={errors.hours[day.date]}
-                    disabled={!day.editable || locked}
+                    disabled={!day.editable || locked || day.date !== current.today}
                     empty={day.editable ? totals?.empty[day.date] : day.emptyMeaning ?? undefined}
                     onChange={(v) => setDayHours(day.date, v)}
                   />
@@ -322,6 +362,24 @@ export default function TimesheetScreen({
       <Section title={historyWeeks ? `History (${historyWeeks} ${historyWeeks === 1 ? 'week' : 'weeks'})` : 'History'}>{history}</Section>
 
       {confirming && <ConfirmDialog onCancel={() => closeConfirm(false)} onConfirm={() => closeConfirm(true)} />}
+      {leaving && (
+        <UnsavedDialog
+          saving={busy === 'save'}
+          onDismiss={() => setLeaving(null)}
+          onDiscard={() => {
+            const go = leaving
+            setLeaving(null)
+            go()
+          }}
+          onSave={async () => {
+            const go = leaving
+            if (await save()) {
+              setLeaving(null)
+              go()
+            } else setLeaving(null) // the errors show on the timesheet
+          }}
+        />
+      )}
     </>
   )
 }
@@ -411,10 +469,14 @@ const EMPTY_NOTE: Record<EmptyMeaning, { text: string; tone: string } | null> = 
 }
 
 function DayRow({
-  day, isToday, value, error, disabled, empty, onChange,
+  day, isToday, notYet, past, value, error, disabled, empty, onChange,
 }: {
   day: WeekDayData
   isToday: boolean
+  /** A day still to come: its hours open on the day. */
+  notYet: boolean
+  /** An earlier day: no longer open, it shows what was saved. */
+  past: boolean
   value: string
   error?: string
   disabled: boolean
@@ -425,11 +487,12 @@ function DayRow({
   const id = `hours-${day.date}`
   const label = dayLabel(day.date)
   const emptyNote = empty ? EMPTY_NOTE[empty] : null
-  const note = noteFor(day) || emptyNote?.text || ''
+  const note = noteFor(day) || emptyNote?.text || (notYet && day.kind === 'WORKING' && !day.weeklyOff ? 'Opens on the day' : '')
   const status = day.entryStatus ? STATUS_LABEL[day.entryStatus] ?? 'Pending' : null
   // Weekly offs, holidays and approved full-day leave show their credited hours: nothing to type.
   const credit = creditedDay(day)
-  const greyed = !day.editable && !status && !credit
+  const open = day.editable && isToday
+  const greyed = !open && !status && !credit
   return (
     <div>
       <div className="flex items-stretch gap-2">
@@ -482,10 +545,10 @@ function DayRow({
             min={0}
             max={MAX_HOURS_PER_DAY}
             step={0.25}
-            value={day.editable ? value : ''}
+            value={open ? value : past && day.hours !== null && day.hours !== undefined ? formatHours(day.hours) : ''}
             onChange={(e) => onChange(e.target.value)}
             disabled={disabled}
-            placeholder="–"
+            placeholder={open ? '0' : '–'}
             aria-label={`Hours for ${label}${note ? ` (${note.toLowerCase()})` : ''}`}
             aria-invalid={!!error}
             className={`tnum h-12 w-[5.5rem] shrink-0 rounded-xl border px-3 text-center text-[15px] outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 disabled:cursor-not-allowed disabled:bg-mist-50 disabled:text-ink-muted ${
@@ -499,6 +562,61 @@ function DayRow({
           {error}
         </p>
       )}
+    </div>
+  )
+}
+
+/* ---------- Unsaved hours ---------- */
+
+/**
+ * Leaving with hours typed but not saved: Save timesheet or Discard. Android
+ * Back (or a tap outside) just closes it and stays on the timesheet.
+ */
+function UnsavedDialog({
+  saving, onSave, onDiscard, onDismiss,
+}: { saving: boolean; onSave: () => void; onDiscard: () => void; onDismiss: () => void }) {
+  useBackHandler(saving ? () => {} : onDismiss)
+  return (
+    <div
+      className="backdrop-enter fixed inset-0 z-50 grid place-items-end bg-navy-950/50 p-3 backdrop-blur-[3px] sm:place-items-center"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !saving) onDismiss()
+      }}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="unsaved-title"
+        aria-describedby="unsaved-text"
+        className="sheet sheet-enter w-full max-w-sm overflow-hidden rounded-[28px] px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3 text-center"
+      >
+        <span className="mx-auto block h-1.5 w-10 rounded-full bg-line-strong" aria-hidden="true" />
+        <span className="unsaved-badge mx-auto mt-5 grid h-[68px] w-[68px] place-items-center rounded-[22px]">
+          <Icon name="clock" className="h-8 w-8 text-white" />
+        </span>
+        <p id="unsaved-title" className="mt-4 text-[21px] font-bold tracking-tight text-ink">Save your timesheet?</p>
+        <p id="unsaved-text" className="mx-auto mt-2 max-w-[19rem] text-[14px] leading-relaxed text-ink-muted">
+          You entered hours that aren’t saved yet. Save them before leaving, or discard the changes.
+        </p>
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={onDiscard}
+            disabled={saving}
+            className="press flex h-14 items-center justify-center gap-2 rounded-2xl bg-rejected-soft/70 text-[15px] font-semibold text-bad ring-1 ring-inset ring-bad/30 transition-transform duration-150 disabled:opacity-60"
+          >
+            <Icon name="trash" className="h-[18px] w-[18px]" /> Discard
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className="press save-cta flex h-14 items-center justify-center gap-2 rounded-2xl text-[15px] font-semibold text-white transition-transform duration-150 disabled:opacity-80"
+          >
+            {saving ? <><Spinner /> Saving</> : <><Icon name="check" className="h-[18px] w-[18px]" /> Save timesheet</>}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -28,6 +28,7 @@ export default function HrApp({
   user,
   data,
   token,
+  appLock,
   onLogout,
   onSessionExpired,
 }: {
@@ -35,6 +36,8 @@ export default function HrApp({
   data: DashboardData
   /** JWT for API calls. Memory only. */
   token: string
+  /** Android app only: App lock (PIN / fingerprint to stay signed in). */
+  appLock?: { label: string; onOpen: () => void }
   onLogout: () => void
   onSessionExpired: () => void
 }) {
@@ -358,6 +361,7 @@ export default function HrApp({
             <AdminRow icon="shield" title="Roles and access" meta={`${employees.length} accounts`} onClick={() => setSub('roles')} />
             <AdminRow icon="chart" title="Reports" meta="Summary" onClick={() => setSub('reports')} />
             <AdminRow icon="list" title="Audit log" meta={`${auditLog.length} recent`} onClick={() => setSub('audit')} />
+            {appLock && <AdminRow icon="fingerprint" title="App lock" meta={appLock.label} onClick={appLock.onOpen} />}
           </List>
         </Section>
 

@@ -18,6 +18,7 @@
     "@capacitor/local-notifications": "8.3.1",
     "@capacitor/share": "8.0.3",
     "@capawesome-team/capacitor-file-opener": "8.0.5",
+    "@capgo/capacitor-native-biometric": "8.8.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

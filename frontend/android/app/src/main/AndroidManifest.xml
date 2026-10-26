@@ -4,6 +4,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Unlock the app with fingerprint or face (the phone PIN needs no permission). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
     <!-- Notifications (Android 13+ asks the user once). The notifications plugin
          also lists alarm and boot permissions for scheduled reminders; this app
          only posts notifications straight away, so those are removed. -->

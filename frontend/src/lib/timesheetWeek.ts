@@ -130,19 +130,31 @@ export function formatDayLong(iso: string): string {
 /* ---------- Form values ---------- */
 
 /**
- * What each hours box starts with: the saved hours, or for a week not
- * started yet the day's expected hours (9 on a normal day, 4.5 on a half day
- * of leave), so a normal week takes two taps. Boxes of locked days are left out.
+ * What each hours box starts with: the saved hours, otherwise empty (shown as
+ * 0). Nothing is filled in for the employee: only hours they type and save
+ * count. Boxes of locked days are left out.
  */
 export function startingHours(week: WeekData): Record<string, string> {
   const result: Record<string, string> = {}
   for (const day of week.days) {
     if (!day.editable) continue
-    if (day.hours !== null && day.hours !== undefined) result[day.date] = formatHours(day.hours)
-    else if (week.status === 'NOT_STARTED' && num(day.targetHours) >= 1) result[day.date] = formatHours(day.targetHours)
-    else result[day.date] = ''
+    result[day.date] = day.hours !== null && day.hours !== undefined ? formatHours(day.hours) : ''
   }
   return result
+}
+
+/** Whether what is typed differs from what was last saved (hours or description). */
+export function hasUnsavedChanges(
+  saved: { hours: Record<string, string>; description: string },
+  hours: Record<string, string>,
+  description: string,
+): boolean {
+  if (description.trim() !== saved.description.trim()) return true
+  const days = new Set([...Object.keys(saved.hours), ...Object.keys(hours)])
+  for (const d of days) {
+    if ((hours[d] ?? '').trim() !== (saved.hours[d] ?? '').trim()) return true
+  }
+  return false
 }
 
 export interface WeekTotals {
@@ -191,8 +203,11 @@ export function weekTotals(week: WeekData, hours: Record<string, string>): WeekT
   let required = expected
   const empty: Record<string, EmptyMeaning> = {}
   for (const day of week.days) {
-    if (day.editable) {
-      const text = (hours[day.date] ?? '').trim()
+    // Today's box counts what is typed; an earlier working day not yet sent
+    // counts the hours saved for it (it can no longer be changed).
+    const savedEarlier = !day.editable && !day.entryStatus && day.date < week.today && num(day.targetHours) > 0
+    if (day.editable || savedEarlier) {
+      const text = day.editable ? (hours[day.date] ?? '').trim() : day.hours === null || day.hours === undefined ? '' : String(num(day.hours))
       const value = Number(text)
       if (text && Number.isFinite(value) && value > 0) {
         entered += value

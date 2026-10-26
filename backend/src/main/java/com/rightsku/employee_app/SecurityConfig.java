@@ -35,6 +35,7 @@ public class SecurityConfig {
 
     static final String PASSWORD_CHANGE_ONLY = "PASSWORD_CHANGE_ONLY";
     static final String CHANGE_PASSWORD_PATH = "/api/auth/change-password";
+    static final String REMEMBER_DEVICE_PATH = "/api/auth/remember-device";
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -140,6 +141,8 @@ public class SecurityConfig {
                 .requestMatchers(
                     HttpMethod.POST, CHANGE_PASSWORD_PATH
                 ).authenticated()
+                // Stay signed in on a phone: a full (not temporary-password) session only.
+                .requestMatchers(HttpMethod.POST, REMEMBER_DEVICE_PATH).hasAnyRole("EMPLOYEE", "HR_ADMIN")
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/error").permitAll()
                 // Server health (UP/DOWN only, no details) for Docker and monitoring.

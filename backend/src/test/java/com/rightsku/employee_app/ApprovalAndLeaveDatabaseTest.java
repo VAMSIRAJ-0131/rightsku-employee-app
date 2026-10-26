@@ -41,7 +41,9 @@ import org.springframework.test.context.DynamicPropertySource;
 @EnabledIfEnvironmentVariable(named = "RIGHTSKU_TEST_DB_URL", matches = "jdbc:postgresql://.+")
 @SpringBootTest(properties = {
         "HR_ADMIN_BOOTSTRAP_ENABLED=false",
-        "app.jwt.secret=" + JwtServiceTest.TEST_SECRET
+        "app.jwt.secret=" + JwtServiceTest.TEST_SECRET,
+        // Fills whole past weeks at once to check the weekly rules.
+        "app.timesheet.today-only=false"
 })
 class ApprovalAndLeaveDatabaseTest {
 

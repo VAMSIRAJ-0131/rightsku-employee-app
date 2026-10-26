@@ -7,6 +7,8 @@
 // Security notes:
 // - The JWT is returned to the caller and kept in React state (memory) only.
 //   It is never written to localStorage, sessionStorage, cookies or logs.
+// - In the Android app the person can choose to stay signed in (app lock set
+//   up): the refresh token is kept encrypted on the phone (lib/rememberedLogin).
 // - Error results carry a reason code only, never response bodies, so no
 //   server details or tokens can end up on screen.
 import type { Employee, Role } from '../data/types'
@@ -59,6 +61,11 @@ export interface AuthSession {
    * also refuses every other request made with this token.
    */
   mustChangePassword: boolean
+  /**
+   * Android app only: lets this phone stay signed in until Log out (see
+   * lib/rememberedLogin). Never displayed or logged; null in a browser.
+   */
+  refreshToken?: string | null
   /** What the dashboards show. Only fields the backend provides are filled. */
   profile: Employee
 }
@@ -112,7 +119,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Checks the shape of a successful login response and turns it into a session. */
 export function parseLoginResponse(data: unknown): AuthSession | null {
   if (!isRecord(data)) return null
-  const { token, email, userId, role, loginId, mustChangePassword } = data
+  const { token, email, userId, role, loginId, mustChangePassword, refreshToken } = data
   const mappedRole = mapBackendRole(role)
   if (typeof token !== 'string' || token.length === 0) return null
   if (typeof email !== 'string' || email.length === 0) return null
@@ -130,6 +137,7 @@ export function parseLoginResponse(data: unknown): AuthSession | null {
     email,
     role: mappedRole,
     mustChangePassword: mustChangePassword === true,
+    refreshToken: typeof refreshToken === 'string' && refreshToken.length > 0 ? refreshToken : null,
     profile: profileFromAuth(userId, id, email, mappedRole),
   }
 }

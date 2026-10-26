@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +76,13 @@ public class TimesheetService {
     private final LeaveDays leaveDays;
     private final PaidLeaveCheck paidLeave;
     private final Clock clock;
+    /**
+     * Hours can be entered on the day itself only (app.timesheet.today-only,
+     * on by default): earlier days keep what was saved on them, later days open
+     * on the day. Off, every day up to today stays open (used by tests that
+     * check the weekly rules on whole past weeks).
+     */
+    private final boolean todayOnly;
 
     public TimesheetService(
             TimesheetEntryRepository entries,
@@ -83,7 +91,8 @@ public class TimesheetService {
             WorkCalendarService calendarService,
             LeaveDays leaveDays,
             PaidLeaveCheck paidLeave,
-            Clock clock) {
+            Clock clock,
+            @Value("${app.timesheet.today-only:true}") boolean todayOnly) {
         this.entries = entries;
         this.weeks = weeks;
         this.employees = employees;
@@ -91,6 +100,7 @@ public class TimesheetService {
         this.leaveDays = leaveDays;
         this.paidLeave = paidLeave;
         this.clock = clock;
+        this.todayOnly = todayOnly;
     }
 
     /* ---------- Reading ---------- */
@@ -138,7 +148,8 @@ public class TimesheetService {
         if (state.allDaysSubmittedEarlier()) {
             throw ApiException.conflict(null, ALREADY_SUBMITTED_MESSAGE);
         }
-        Map<LocalDate, BigDecimal> hours = checkDays(state, request.days());
+        LocalDate today = LocalDate.now(clock);
+        Map<LocalDate, BigDecimal> hours = hoursAfter(state, request.days(), today);
         String description = cleanDescription(request.description(), false);
 
         TimesheetWeek week = state.week != null ? state.week : TimesheetWeek.start(me.getId(), state.weekStart);
@@ -165,9 +176,6 @@ public class TimesheetService {
         if (state.allDaysSubmittedEarlier()) {
             throw ApiException.conflict(null, ALREADY_SUBMITTED_MESSAGE);
         }
-        Map<LocalDate, BigDecimal> hours = checkDays(state, request.days());
-        String description = cleanDescription(request.description(), true);
-
         LocalDate opensOn = state.target.lastWorkingDay();
         if (opensOn == null) {
             throw ApiException.invalid("target", "This week has no working days to submit.");
@@ -176,6 +184,8 @@ public class TimesheetService {
             throw ApiException.invalid("target", "You can submit this week from " + DAY.format(opensOn)
                     + ", its last working day. Save it as a draft until then.");
         }
+        Map<LocalDate, BigDecimal> hours = hoursAfter(state, request.days(), today);
+        String description = cleanDescription(request.description(), true);
         if (hours.values().stream().noneMatch(h -> h.signum() > 0) && state.entries.isEmpty()) {
             throw ApiException.invalid("target", "Enter hours for at least one working day.");
         }
@@ -296,8 +306,12 @@ public class TimesheetService {
         return new WeekState(weekStart, target, week, submitted, pendingLeave, me.getId());
     }
 
-    /** Checks each day sent; returns the hours to keep (days without hours are left out). */
-    private static Map<LocalDate, BigDecimal> checkDays(WeekState state, List<WeekTimesheetRequest.DayHours> days) {
+    /**
+     * Checks each day sent; returns the hours to keep (days without hours are left out).
+     * Only today's hours can be entered or changed: another day is accepted only
+     * when it repeats the hours already saved for it.
+     */
+    private Map<LocalDate, BigDecimal> checkDays(WeekState state, List<WeekTimesheetRequest.DayHours> days, LocalDate today) {
         Map<LocalDate, BigDecimal> result = new TreeMap<>();
         Set<LocalDate> seen = new HashSet<>();
         if (days == null) {
@@ -321,6 +335,12 @@ public class TimesheetService {
             if (state.submittedOn(date) != null) {
                 throw ApiException.conflict(field, DAY.format(date) + " was already submitted and can't be changed.");
             }
+            boolean closed = todayOnly ? !date.equals(today) && !sameAsSaved(state, date, day.hours()) : date.isAfter(today);
+            if (closed) {
+                throw ApiException.invalid(field, date.isAfter(today)
+                        ? "You can't enter hours for " + DAY.format(date) + " yet."
+                        : "Hours can only be entered on the day itself. " + DAY.format(date) + " can no longer be changed.");
+            }
             WeekTarget.Day plan = state.target.day(date);
             if (!plan.takesHours()) {
                 throw ApiException.invalid(field, whyNoHours(plan));
@@ -334,6 +354,36 @@ public class TimesheetService {
             }
             result.put(date, day.hours().setScale(2, RoundingMode.UNNECESSARY));
         }
+        return result;
+    }
+
+    /** Whether these hours are exactly what is already saved in the draft for that day. */
+    private static boolean sameAsSaved(WeekState state, LocalDate date, BigDecimal hours) {
+        BigDecimal saved = state.week == null ? null : state.week.getDraftHours().get(date);
+        return saved != null && hours != null && saved.compareTo(hours) == 0;
+    }
+
+    /**
+     * The week's hours after this request: the hours saved earlier for other
+     * days, with today's box as sent now (an empty box clears today).
+     */
+    /** The week's hours once this request is applied (see todayOnly). */
+    private Map<LocalDate, BigDecimal> hoursAfter(WeekState state, List<WeekTimesheetRequest.DayHours> days, LocalDate today) {
+        Map<LocalDate, BigDecimal> sent = checkDays(state, days, today);
+        return todayOnly ? withSavedDays(state, sent, days, today) : sent;
+    }
+
+    private static Map<LocalDate, BigDecimal> withSavedDays(
+            WeekState state, Map<LocalDate, BigDecimal> sent, List<WeekTimesheetRequest.DayHours> days, LocalDate today) {
+        Map<LocalDate, BigDecimal> result = new TreeMap<>();
+        if (state.week != null) {
+            result.putAll(state.week.getDraftHours());
+        }
+        boolean todaySent = days != null && days.stream().anyMatch(d -> d != null && today.equals(d.date()));
+        if (todaySent) {
+            result.remove(today);
+        }
+        result.putAll(sent);
         return result;
     }
 
@@ -510,7 +560,9 @@ public class TimesheetService {
             BigDecimal entered = check.enteredHours();
             for (WeekTarget.Day d : target.days()) {
                 TimesheetEntry entry = byDate.get(d.date());
-                boolean editable = !submitted && entry == null && d.takesHours();
+                // Only today takes hours: earlier days keep what was saved, later days open on the day.
+                boolean editable = !submitted && entry == null && d.takesHours()
+                        && (todayOnly ? d.date().equals(today) : !d.date().isAfter(today));
                 BigDecimal hours = entry != null ? entry.getHours() : draftHours.get(d.date());
                 WeekSubmission.Empty empty = emptyMeaning.get(d.date());
                 days.add(new WeekTimesheetResponse.Day(d.date(), d.kind().name(), d.weeklyOff(), d.holidayName(),

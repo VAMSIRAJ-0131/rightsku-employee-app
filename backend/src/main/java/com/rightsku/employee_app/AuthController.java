@@ -33,18 +33,21 @@ public class AuthController {
     private final JwtService jwtService;
     private final LoginRateLimiter loginRateLimiter;
     private final PasswordChangeService passwordChangeService;
+    private final RefreshTokenService refreshTokenService;
 
     public AuthController(
             AuthenticationManager authenticationManager,
             AppUserRepository appUserRepository,
             JwtService jwtService,
             LoginRateLimiter loginRateLimiter,
-            PasswordChangeService passwordChangeService) {
+            PasswordChangeService passwordChangeService,
+            RefreshTokenService refreshTokenService) {
         this.authenticationManager = authenticationManager;
         this.appUserRepository = appUserRepository;
         this.jwtService = jwtService;
         this.loginRateLimiter = loginRateLimiter;
         this.passwordChangeService = passwordChangeService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     @PostMapping("/login")
@@ -89,12 +92,50 @@ public class AuthController {
                 .orElseThrow(() ->
                         new IllegalStateException("Authenticated user not found"));
 
-        String token = jwtService.generateToken(user);
+        // No refresh token here: the phone asks for one (remember-device) only
+        // after the person sets up a PIN or fingerprint unlock.
+        return ResponseEntity.ok(sessionFor(user, null));
+    }
 
-        return ResponseEntity.ok(
-                new LoginResponse(token, "Bearer",
-                        user.getId(), user.getLoginId(), user.getEmail(), user.getRole(),
-                        user.isMustChangePassword()));
+    /**
+     * A new sign-in token for a phone that stays signed in
+     * (POST /api/auth/refresh). The same refresh token stays in use and is
+     * extended. 401 when it no longer works: logged out, password changed or
+     * reset, account deactivated, or unused for too long.
+     */
+    @PostMapping("/refresh")
+    public ResponseEntity<LoginResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        AppUser user = refreshTokenService.use(request.refreshToken())
+                .orElseThrow(() -> new BadCredentialsException("Session ended"));
+        return ResponseEntity.ok(sessionFor(user, request.refreshToken()));
+    }
+
+    /**
+     * Stay signed in on this phone (POST /api/auth/remember-device): called by
+     * the phone app only after the person sets up a PIN or fingerprint unlock.
+     * Needs a full sign-in; a temporary-password session is refused (403).
+     */
+    @PostMapping("/remember-device")
+    public ResponseEntity<RememberDeviceResponse> rememberDevice(@AuthenticationPrincipal Jwt jwt) {
+        AppUser user = appUserRepository.findById(Long.parseLong(jwt.getSubject()))
+                .orElseThrow(() -> new BadCredentialsException("Session ended"));
+        return ResponseEntity.ok(new RememberDeviceResponse(refreshTokenService.issue(user)));
+    }
+
+    /**
+     * Log out on this phone (POST /api/auth/logout): its refresh token stops
+     * working. Always 204, so the answer says nothing about the token.
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        refreshTokenService.revoke(request.refreshToken());
+        return ResponseEntity.noContent().build();
+    }
+
+    private LoginResponse sessionFor(AppUser user, String refreshToken) {
+        return new LoginResponse(jwtService.generateToken(user), "Bearer",
+                user.getId(), user.getLoginId(), user.getEmail(), user.getRole(),
+                user.isMustChangePassword(), refreshToken);
     }
 
     /**

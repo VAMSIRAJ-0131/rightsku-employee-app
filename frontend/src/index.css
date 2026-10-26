@@ -53,6 +53,11 @@
   --color-rejected: #efa9a4;
   --color-rejected-soft: #fce6e4;
   --color-rejected-ink: #a33d37;
+  /* Solid status colours for badges, filled tiles and legend dots (Home). */
+  --color-approved-strong: #3cc583;
+  --color-pending-strong: #f5b53f;
+  --color-rejected-strong: #ee6863;
+  --color-not-submitted: #a5afc2;
 
   /* Dashboard accents: royal blue for active and links, plus the pale blue,
      lavender and gold tints of the Home cards and their icon tiles. */
@@ -230,9 +235,9 @@ button {
 .hero-card {
   background-color: var(--color-navy-900);
   background-image:
-    radial-gradient(120% 90% at 100% 0%, rgb(86 136 255 / 0.38) 0%, rgb(86 136 255 / 0) 55%),
-    radial-gradient(80% 70% at 0% 100%, rgb(37 84 204 / 0.35) 0%, rgb(37 84 204 / 0) 60%),
-    linear-gradient(150deg, #0f1e38 0%, #142a57 50%, #1c3d8a 100%);
+    radial-gradient(90% 80% at 100% 0%, rgb(56 120 220 / 0.55) 0%, rgb(56 120 220 / 0) 60%),
+    linear-gradient(115deg, rgb(255 255 255 / 0) 45%, rgb(255 255 255 / 0.05) 46%, rgb(255 255 255 / 0) 70%),
+    linear-gradient(160deg, #0d1f42 0%, #102a5a 55%, #0c1d3f 100%);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.12),
     0 2px 4px rgb(10 21 40 / 0.12),
@@ -247,13 +252,212 @@ button {
   box-shadow: inset 0 1px 0 #fff, 0 6px 16px -8px rgb(0 0 0 / 0.45);
 }
 .hero-button svg {
-  color: var(--color-royal-600);
+  color: var(--color-navy-900);
 }
 html[data-theme='dark'] .hero-button {
   color: #0f1e38;
 }
 html[data-theme='dark'] .hero-button svg {
-  color: #2554cc;
+  color: #0f1e38;
+}
+
+/* ---------- Festive and sky drawings (Home) ----------
+   Small, slow loops on SVG parts. "fx" makes a part turn or grow around its
+   own middle; fx-top / fx-bottom / fx-left move that pivot. All of it stops
+   when the phone asks for reduced motion (see the end of this file). */
+.fx {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.fx-top {
+  transform-origin: top center;
+}
+.fx-bottom {
+  transform-origin: bottom center;
+}
+.fx-left {
+  transform-origin: left center;
+}
+@keyframes fx-fall {
+  0% {
+    transform: translate(0, -14px);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--drift, 10px), 180px);
+    opacity: 0.15;
+  }
+}
+.fx-fall {
+  animation: fx-fall 6s linear infinite;
+}
+@keyframes fx-flicker {
+  0%, 100% { transform: scale(1, 1); }
+  25% { transform: scale(0.9, 1.1) skewX(3deg); }
+  50% { transform: scale(1.05, 0.94); }
+  75% { transform: scale(0.95, 1.06) skewX(-3deg); }
+}
+.fx-flicker {
+  animation: fx-flicker 1.4s ease-in-out infinite;
+}
+@keyframes fx-twinkle {
+  0%, 100% { opacity: 0.25; transform: scale(0.7); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+.fx-twinkle {
+  animation: fx-twinkle 2.4s ease-in-out infinite;
+}
+@keyframes fx-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+.fx-bob {
+  animation: fx-bob 2.8s ease-in-out infinite;
+}
+@keyframes fx-sway {
+  0%, 100% { transform: rotate(-6deg); }
+  50% { transform: rotate(6deg); }
+}
+.fx-sway {
+  animation: fx-sway 3.2s ease-in-out infinite;
+}
+@keyframes fx-spin {
+  to { transform: rotate(360deg); }
+}
+.fx-spin {
+  animation: fx-spin 5s linear infinite;
+}
+.fx-spin-slow {
+  animation: fx-spin 30s linear infinite;
+}
+@keyframes fx-wave {
+  0%, 100% { transform: skewY(0deg) scaleX(1); }
+  50% { transform: skewY(-5deg) scaleX(0.95); }
+}
+.fx-wave {
+  animation: fx-wave 2.2s ease-in-out infinite;
+}
+@keyframes fx-pulse {
+  0%, 100% { transform: scale(0.9); }
+  50% { transform: scale(1.06); }
+}
+.fx-pulse {
+  animation: fx-pulse 2.6s ease-in-out infinite;
+}
+@keyframes fx-burst {
+  0% { transform: scale(0.2); opacity: 0; }
+  20% { opacity: 1; }
+  70% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(1.12); opacity: 0; }
+}
+.fx-burst {
+  animation: fx-burst 2.6s ease-out infinite;
+}
+@keyframes fx-rise {
+  0% { transform: translateY(8px); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translateY(-30px); opacity: 0; }
+}
+.fx-rise {
+  animation: fx-rise 3.2s ease-out infinite;
+}
+@keyframes fx-clink {
+  0%, 100% { transform: rotate(-14deg); }
+  50% { transform: rotate(4deg); }
+}
+.fx-clink {
+  animation: fx-clink 1.6s ease-in-out infinite;
+}
+/* A drawing shown without its motion (no upcoming holiday). */
+.fx-still * {
+  animation: none !important;
+}
+
+/* ---------- Unsaved timesheet dialog ---------- */
+
+/* Amber badge above the question, and the royal-blue "Save timesheet" button. */
+.unsaved-badge {
+  background-image: linear-gradient(160deg, #f8c35c 0%, #ef9a2d 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 12px 24px -12px rgb(239 154 45 / 0.75);
+}
+.save-cta {
+  background-color: var(--color-royal-600);
+  background-image: linear-gradient(180deg, #3f6fe3 0%, #2554cc 55%, #1f47b0 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 10px 22px -12px rgb(37 84 204 / 0.8);
+}
+html[data-theme='dark'] .save-cta {
+  background-image: linear-gradient(180deg, #4c7cf0 0%, #3463d8 55%, #2a52bb 100%);
+}
+
+/* ---------- Home: Leave and Payslips motion ---------- */
+
+/* Clouds and birds drifting on the Leave card's beach. */
+@keyframes fx-drift {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(10px); }
+}
+.fx-drift {
+  animation: fx-drift 7s ease-in-out infinite;
+}
+@keyframes fx-glide {
+  0% { transform: translate(-6px, 2px); }
+  50% { transform: translate(6px, -3px); }
+  100% { transform: translate(-6px, 2px); }
+}
+.fx-glide {
+  animation: fx-glide 6s ease-in-out infinite;
+}
+
+/* The Payslips pages rise into place when the card is scrolled into view. */
+@keyframes doc-rise {
+  from { transform: translateY(28px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.doc-rise-a {
+  animation: doc-rise 700ms cubic-bezier(0.2, 0.8, 0.3, 1.1) backwards;
+}
+.doc-rise-b {
+  animation: doc-rise 700ms 160ms cubic-bezier(0.2, 0.8, 0.3, 1.1) backwards;
+}
+
+/* ---------- App lock screens ---------- */
+
+/* Pale blue page behind the app-lock setup, PIN and unlock screens. */
+.lock-sheet {
+  background-color: #f3f7fe;
+  background-image: linear-gradient(180deg, #f6f9ff 0%, #eef3fd 100%);
+}
+html[data-theme='dark'] .lock-sheet {
+  background-color: var(--color-canvas);
+  background-image: linear-gradient(180deg, #0d1729 0%, #0a1220 100%);
+}
+
+/* A round PIN key: white, softly raised. */
+.pin-key {
+  background-color: #fff;
+  background-image: linear-gradient(180deg, #ffffff 0%, #f7f9fe 100%);
+  box-shadow: inset 0 1px 0 #fff, 0 8px 18px -10px rgb(37 84 204 / 0.35), 0 1px 2px rgb(15 30 56 / 0.06);
+}
+.pin-key:not(:disabled):active {
+  background-image: linear-gradient(180deg, #eef3fd 0%, #e3ebfc 100%);
+}
+html[data-theme='dark'] .pin-key {
+  background-color: var(--surface);
+  background-image: linear-gradient(180deg, var(--surface-top) 0%, var(--surface) 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 8px 18px -10px rgb(0 0 0 / 0.7);
+}
+
+/* A raised white option card on the lock screens. */
+.lock-card {
+  background-color: #fff;
+  box-shadow: 0 10px 28px -16px rgb(37 84 204 / 0.35), 0 1px 2px rgb(15 30 56 / 0.05);
+}
+html[data-theme='dark'] .lock-card {
+  background-color: var(--surface);
+  box-shadow: 0 10px 28px -16px rgb(0 0 0 / 0.7), 0 0 0 1px var(--color-line);
 }
 
 /* White cards with a whisper of colour at the bottom (Leave, Payslips, Holidays). */
@@ -343,6 +547,11 @@ html[data-theme='dark'] {
   --color-rejected: #c96a64;
   --color-rejected-soft: #3a1b1b;
   --color-rejected-ink: #f3a6a0;
+
+  --color-approved-strong: #45b67f;
+  --color-pending-strong: #dfa23d;
+  --color-rejected-strong: #d9605b;
+  --color-not-submitted: #5d6a82;
 
   --color-royal-700: #a9c1fb;
   --color-royal-600: #8fb0fa;
@@ -520,6 +729,14 @@ html[data-theme='dark'] select {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Festive drawings stand still; falling snow and confetti are left out. */
+  :is(.fx-flicker, .fx-twinkle, .fx-bob, .fx-sway, .fx-spin, .fx-spin-slow, .fx-wave, .fx-pulse, .fx-burst, .fx-rise, .fx-clink,
+    .fx-drift, .fx-glide, .doc-rise-a, .doc-rise-b) {
+    animation: none !important;
+  }
+  .fx-fall {
+    display: none;
+  }
   *,
   *::before,
   *::after {

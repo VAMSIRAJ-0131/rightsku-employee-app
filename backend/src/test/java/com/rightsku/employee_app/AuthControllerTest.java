@@ -50,7 +50,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 // probe controller inside this test class; Spring Boot's test scanning skips
 // nested classes of tests, so its endpoints were never mapped: HTTP 404.)
 @Import({SecurityConfig.class, JwtService.class, AppUserDetailsService.class, LoginRateLimiter.class,
-        PasswordChangeService.class, TimeConfig.class, RoleProbeTestConfig.class})
+        PasswordChangeService.class, TimeConfig.class, RoleProbeTestConfig.class, RefreshTokenService.class})
 class AuthControllerTest {
 
     // Test-only values.
@@ -82,6 +82,24 @@ class AuthControllerTest {
 
     @MockitoBean
     private AuditEntryRepository auditEntryRepository;
+
+    @MockitoBean
+    private RefreshTokenRepository refreshTokenRepository;
+
+    /** Stand-in for the refresh_tokens table, keyed by token hash. */
+    private final java.util.Map<String, RefreshToken> storedRefreshTokens = new java.util.HashMap<>();
+
+    @BeforeEach
+    void inMemoryRefreshTokens() {
+        storedRefreshTokens.clear();
+        when(refreshTokenRepository.save(org.mockito.ArgumentMatchers.any(RefreshToken.class))).thenAnswer(call -> {
+            RefreshToken t = call.getArgument(0);
+            storedRefreshTokens.put((String) ReflectionTestUtils.getField(t, "tokenHash"), t);
+            return t;
+        });
+        when(refreshTokenRepository.findByTokenHash(anyString()))
+                .thenAnswer(call -> Optional.ofNullable(storedRefreshTokens.get(call.<String>getArgument(0))));
+    }
 
     @Autowired
     @Qualifier("requestMappingHandlerMapping")
@@ -655,5 +673,97 @@ class AuthControllerTest {
 
         mockMvc.perform(get(HR_PROBE).header("Authorization", "Bearer " + hrToken))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /* ---------- Stay signed in on the phone (refresh tokens) ---------- */
+
+    /** Signs in, then sets up "stay signed in" like the phone app does after its PIN/fingerprint setup. */
+    private MvcResult phoneLogin(String username, String password) throws Exception {
+        String token = tokenFrom(login(username, password).andReturn());
+        return mockMvc.perform(post("/api/auth/remember-device").header("Authorization", "Bearer " + token))
+                .andReturn();
+    }
+
+    private static String refreshTokenFrom(MvcResult result) throws Exception {
+        return com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.refreshToken");
+    }
+
+    private org.springframework.test.web.servlet.ResultActions refresh(String refreshToken) throws Exception {
+        return mockMvc.perform(post("/api/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"" + refreshToken + "\"}"));
+    }
+
+    @Test
+    void aRefreshTokenIsOnlyIssuedWhenAskedForAndOnlyItsHashIsStored() throws Exception {
+        givenUser(2L, EMPLOYEE_EMAIL, AppUser.ROLE_EMPLOYEE, true);
+
+        // Signing in alone never remembers the phone.
+        login(EMPLOYEE_ID, PASSWORD).andExpect(status().isOk()).andExpect(jsonPath("$.refreshToken").doesNotExist());
+        assertThat(storedRefreshTokens).isEmpty();
+        mockMvc.perform(post("/api/auth/remember-device")).andExpect(status().isUnauthorized());
+
+        String refreshToken = refreshTokenFrom(phoneLogin(EMPLOYEE_ID, PASSWORD));
+        assertThat(refreshToken).hasSizeGreaterThanOrEqualTo(43);
+        assertThat(storedRefreshTokens).hasSize(1).doesNotContainKey(refreshToken)
+                .containsKey(RefreshTokenService.hash(refreshToken));
+    }
+
+    @Test
+    void aRememberedPhoneGetsAWorkingTokenWithoutThePasswordUntilLogout() throws Exception {
+        givenUser(2L, EMPLOYEE_EMAIL, AppUser.ROLE_EMPLOYEE, true);
+        String refreshToken = refreshTokenFrom(phoneLogin(EMPLOYEE_ID, PASSWORD));
+
+        MvcResult renewed = refresh(refreshToken)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.loginId").value(EMPLOYEE_ID))
+                .andExpect(jsonPath("$.refreshToken").value(refreshToken))
+                .andReturn();
+        mockMvc.perform(get(EMPLOYEE_PROBE).header("Authorization", "Bearer " + tokenFrom(renewed)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/auth/logout").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
+                .andExpect(status().isNoContent());
+        refresh(refreshToken).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void changingThePasswordEndsEveryRememberedPhone() throws Exception {
+        givenUser(2L, EMPLOYEE_EMAIL, AppUser.ROLE_EMPLOYEE, true);
+        String phone = refreshTokenFrom(phoneLogin(EMPLOYEE_ID, PASSWORD));
+        String laptop = tokenFrom(login(EMPLOYEE_ID, PASSWORD).andReturn());
+
+        changePassword(laptop, PASSWORD, NEW_PASSWORD).andExpect(status().isNoContent());
+
+        refresh(phone).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aDeactivatedAccountCannotStaySignedIn() throws Exception {
+        AppUser employee = givenUser(2L, EMPLOYEE_EMAIL, AppUser.ROLE_EMPLOYEE, true);
+        String phone = refreshTokenFrom(phoneLogin(EMPLOYEE_ID, PASSWORD));
+
+        employee.deactivate();
+
+        refresh(phone).andExpect(status().isUnauthorized());
+        employee.activate();
+        // Revoked on the failed try: reactivating the account does not bring it back.
+        refresh(phone).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void unknownBlankOrTemporaryPasswordSessionsGetNoRefresh() throws Exception {
+        refresh("not-a-real-token").andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON).content("{\"refreshToken\":\"\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/auth/logout").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"not-a-real-token\"}"))
+                .andExpect(status().isNoContent());
+
+        // A temporary-password session can't ask to stay signed in.
+        givenEmployeeWithTemporaryPassword();
+        assertThat(phoneLogin(EMPLOYEE_ID, PASSWORD).getResponse().getStatus()).isEqualTo(403);
+        assertThat(storedRefreshTokens).isEmpty();
     }
 }

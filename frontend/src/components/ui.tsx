@@ -492,9 +492,9 @@ export function BottomNav<T extends string>({
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-20 mx-auto w-full max-w-md border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-6px_20px_-12px_rgb(15_30_56/0.18)] backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-20 mx-auto w-full max-w-md rounded-t-[22px] border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-14px_rgb(15_30_56/0.22)] backdrop-blur"
     >
-      <div className="grid" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+      <div className="grid px-2 py-1.5" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map((item) => {
           const on = item.id === active
           return (
@@ -502,19 +502,15 @@ export function BottomNav<T extends string>({
               key={item.id}
               onClick={() => onChange(item.id)}
               aria-current={on ? 'page' : undefined}
-              className={`relative flex h-16 flex-col items-center justify-center gap-0.5 text-[12px] ${
-                on ? 'font-semibold text-royal-600' : 'font-medium text-ink-muted'
+              className={`press relative mx-1 flex h-[60px] flex-col items-center justify-center gap-1 rounded-2xl text-[12.5px] transition-[background-color,transform] duration-200 ${
+                on ? 'tab-pill-on font-semibold text-royal-600' : 'font-medium text-ink-muted'
               }`}
             >
-              {/* The active tab gets a pale blue pill behind its royal-blue icon. */}
-              <span
-                className={`relative grid h-8 w-14 place-items-center rounded-full transition-colors duration-200 ${
-                  on ? 'tab-pill-on' : ''
-                }`}
-              >
-                <Icon name={item.icon} className="h-[22px] w-[22px]" />
+              {/* The active tab is a pale blue block with a solid royal-blue icon. */}
+              <span className="relative grid place-items-center">
+                <Icon name={item.icon} filled={on && (item.icon === 'home' || item.icon === 'folder')} className="h-6 w-6" />
                 {!!item.badge && (
-                  <span className="tnum absolute right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-navy-900 px-1 text-[10px] font-semibold text-white ring-2 ring-white">
+                  <span className="tnum absolute -right-2.5 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-navy-900 px-1 text-[10px] font-semibold text-white ring-2 ring-white">
                     {item.badge}
                   </span>
                 )}

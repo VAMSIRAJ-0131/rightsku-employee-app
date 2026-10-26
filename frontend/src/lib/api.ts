@@ -80,7 +80,7 @@ interface RequestOptions {
 // Remote testing through a free ngrok tunnel: without this header ngrok answers
 // app (browser-like) GET requests with its own warning page instead of the API.
 // Sent only when the build's API address is an ngrok one.
-const NGROK_HEADERS: Record<string, string> = /\.ngrok(-free)?\.(app|dev|io)$/.test(API_BASE.replace(/^https?:\/\//, '').split(/[/:]/)[0])
+export const NGROK_HEADERS: Record<string, string> = /\.ngrok(-free)?\.(app|dev|io)$/.test(API_BASE.replace(/^https?:\/\//, '').split(/[/:]/)[0])
   ? { 'ngrok-skip-browser-warning': '1' }
   : {}
 

@@ -28,7 +28,7 @@ import org.springframework.test.web.servlet.MockMvc;
                 "app.cors.allowed-origins=https://localhost, capacitor://localhost"
         })
 @Import({SecurityConfig.class, JwtService.class, AppUserDetailsService.class, LoginRateLimiter.class,
-        PasswordChangeService.class, TimeConfig.class})
+        PasswordChangeService.class, TimeConfig.class, RefreshTokenService.class})
 class ProductionSecurityTest {
 
     @Autowired
@@ -39,6 +39,9 @@ class ProductionSecurityTest {
 
     @MockitoBean
     private AuditEntryRepository auditEntryRepository;
+
+    @MockitoBean
+    private RefreshTokenRepository refreshTokenRepository;
 
     // Addressed to the real API host: a request to http://localhost would make
     // the origin http://localhost "same site", which CORS never checks.
