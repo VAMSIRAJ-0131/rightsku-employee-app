@@ -14,7 +14,7 @@ import {
 import type { ApiError } from '../../lib/api'
 import { saveDownloadedFile, savedMessage } from '../../lib/fileSave'
 import {
-  documentFilterOptions, downloadMyDocument, filterDocuments, listMyDocuments, toEmployeeDocument,
+  downloadMyDocument, listMyDocuments, toEmployeeDocument,
 } from '../../lib/documents'
 import { INITIAL_EMPLOYEE_NAV, canGoBack, employeeNav, type EmployeeSubScreen, type EmployeeTab } from '../../lib/employeeNav'
 import { backStack } from '../../lib/backStack'
@@ -32,6 +32,7 @@ import LeaveScreen from './LeaveScreen'
 import { getMyLeaveBalances, getMyLeaveRequests, toLeaveBalance, toLeaveRequest, type LeaveBalanceRecord } from '../../lib/leave'
 import WeeklyTimesheetHistory, { statusTile } from './WeeklyTimesheetHistory'
 import PayslipsScreen from './PayslipsScreen'
+import DocumentsScreen from './DocumentsScreen'
 import NotificationList from './NotificationList'
 import DocumentViewer from '../../components/DocumentViewer'
 import type { DownloadedFile } from '../../lib/api'
@@ -41,6 +42,7 @@ import { startPush } from '../../lib/push'
 import HomeScreen from './HomeDashboard'
 import Dropdown from '../../components/Dropdown'
 import { weekCount, type MonthWeekStatus } from '../../lib/timesheetHistory'
+import { RECENT_LIMIT, newestLeaveFirst, recentItems } from '../../lib/recentItems'
 import ChangePasswordScreen from '../shared/ChangePasswordScreen'
 import { getMyProfile, withProfileRecord } from '../../lib/profile'
 import {
@@ -515,6 +517,21 @@ export default function EmployeeApp({
       <WeeklyTimesheetHistory items={myTimesheets} highlightWeek={focus && focus.tab === tab && focus.sub === sub ? focus.key : null} />
     )
 
+  // Requests: only the newest few, with a note when there are more.
+  const recentLeaves = leaveState.status === 'ready' ? (
+    <>
+      <LeaveList items={myLeaves} highlight={focused} limit={RECENT_LIMIT} />
+      {myLeaves.length > RECENT_LIMIT && <MoreNote text={`Showing your latest ${RECENT_LIMIT} leave applications.`} />}
+    </>
+  ) : leaveHistory
+  const tsWeekCount = new Set(myTimesheets.map((t) => weekStartOf(t.date))).size
+  const recentTimesheets = timesheetState.status === 'ready' ? (
+    <>
+      <WeeklyTimesheetHistory items={myTimesheets} limit={RECENT_LIMIT} highlightWeek={focus && focus.tab === tab && focus.sub === sub ? focus.key : null} />
+      {tsWeekCount > RECENT_LIMIT && <MoreNote text={`Showing your latest ${RECENT_LIMIT} weeks. Older weeks are in Timesheet.`} />}
+    </>
+  ) : timesheetHistory
+
   let screen: ReactNode
   if (sub === 'password') {
     screen = (
@@ -665,54 +682,26 @@ export default function EmployeeApp({
           value={requestsView}
           onChange={setRequestsView}
           pages={[
-            { id: 'timesheets', content: <Section title="Timesheets">{timesheetHistory}</Section> },
-            { id: 'leaves', content: <Section title="Leave applications">{leaveHistory}</Section> },
+            { id: 'timesheets', content: <Section title="Latest timesheets">{recentTimesheets}</Section> },
+            { id: 'leaves', content: <Section title="Latest leave applications">{recentLeaves}</Section> },
           ]}
         />
       </>
     )
   } else if (tab === 'documents') {
-    const shown = filterDocuments(myDocs, docFilter)
     screen = (
-      <>
-        <TopBar title="Documents" subtitle="Letters and Form 16 · visible only to you and HR" onBack={goBack} />
-        <Section>
-          {/* One tap per type, with how many there are (payslips have their own screen). */}
-          <div className="-mx-5 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none]" role="tablist" aria-label="Document type" data-no-swipe>
-            {documentFilterOptions(docState.status === 'ready' ? myDocs : null).map((o) => {
-              const on = o.value === docFilter
-              return (
-                <button
-                  key={o.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  onClick={() => setDocFilter(o.value)}
-                  className={`press flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-[14px] font-semibold transition-[transform,background-color] duration-150 ${
-                    on ? 'save-cta text-white' : 'bg-white text-ink-soft ring-1 ring-inset ring-line-strong'
-                  }`}
-                >
-                  {o.value === 'All' ? 'All' : o.value === 'Compensation Letter' ? 'Hike letter' : o.label}
-                  {o.hint !== undefined && (
-                    <span className={`tnum rounded-full px-1.5 text-[12px] ${on ? 'bg-white/25 text-white' : 'bg-mist-50 text-ink-muted'}`}>{o.hint}</span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </Section>
-        <Section title={docFilter === 'All' ? `All documents (${shown.length})` : docFilter === 'Compensation Letter' ? 'Compensation / Hike letters' : docFilter}>
-          {docState.status === 'error' ? (
-            <LoadError message={docState.message} onRetry={() => setVersion((v) => v + 1)} />
-          ) : docState.status === 'loading' ? (
-            <LoadingCard label="Loading documents" />
-          ) : shown.length === 0 ? (
-            <EmptyState icon="file" title="Not issued yet" message="HR uploads this document when it is ready. You’ll get a notification. Payslips are under Home → Payslips." />
-          ) : (
-            <DocList items={shown} onDownload={download} highlight={focused} />
-          )}
-        </Section>
-      </>
+      <DocumentsScreen
+        key={`${docFilter}|${focus?.tab === 'documents' ? focus.key : ''}`}
+        docs={myDocs.filter((d) => d.type !== 'Payslip')}
+        loading={docState.status === 'loading'}
+        error={docState.status === 'error' ? docState.message : null}
+        initialType={docFilter}
+        focusId={focus && focus.tab === 'documents' ? focus.key : null}
+        onRetry={() => setVersion((v) => v + 1)}
+        onDownload={download}
+        onView={view}
+        onBack={goBack}
+      />
     )
   } else {
     screen = (
@@ -937,7 +926,19 @@ function TextLink({ children, onClick }: { children: ReactNode; onClick: () => v
   )
 }
 
-function LeaveList({ items, highlight }: { items: LeaveRequest[]; highlight?: (id: string) => boolean }) {
+function MoreNote({ text }: { text: string }) {
+  return <p className="mt-3 px-1 text-center text-[12.5px] text-ink-muted">{text}</p>
+}
+
+function LeaveList({
+  items: all, highlight, limit,
+}: {
+  items: LeaveRequest[]
+  highlight?: (id: string) => boolean
+  /** Show only the newest this many (a highlighted one always shows). */
+  limit?: number
+}) {
+  const items = limit ? recentItems(newestLeaveFirst(all), limit, (l) => !!highlight?.(l.id)) : all
   if (items.length === 0)
     return <EmptyState icon="calendar" title="No leave applications" message="Applications you submit will appear here with their status." />
   return (
@@ -974,35 +975,3 @@ function LeaveList({ items, highlight }: { items: LeaveRequest[]; highlight?: (i
   )
 }
 
-function DocList({
-  items, onDownload, highlight,
-}: { items: EmployeeDocument[]; onDownload: (doc: EmployeeDocument) => void; highlight?: (id: string) => boolean }) {
-  return (
-    <List>
-      {items.map((d) => (
-        <Spotlight key={d.id} on={!!highlight?.(d.id)}>
-        <ListRow
-          leading={
-            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${
-              d.type === 'Payslip' ? 'bg-lavender-50 text-lavender-600' : 'bg-royal-50 text-royal-700'
-            }`}>
-              <Icon name={d.type === 'Payslip' ? 'receipt' : 'file'} className="h-[22px] w-[22px]" />
-            </span>
-          }
-          title={<span className="font-semibold">{d.title}</span>}
-          subtitle={<span className="tnum">Issued {formatDate(d.issuedOn)}</span>}
-          right={
-            <button
-              onClick={() => onDownload(d)}
-              aria-label={`Download ${d.title}`}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-royal-50 text-royal-700 hover:bg-royal-100"
-            >
-              <Icon name="download" className="h-[18px] w-[18px]" />
-            </button>
-          }
-        />
-        </Spotlight>
-      ))}
-    </List>
-  )
-}

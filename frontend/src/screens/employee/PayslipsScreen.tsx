@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icons'
 import Dropdown from '../../components/Dropdown'
 import Spotlight from '../../components/Spotlight'
+import DocStackLoader from '../../components/DocStackLoader'
 import { Button, Card, Notice, Section, Spinner, TopBar } from '../../components/ui'
 import type { EmployeeDocument } from '../../data/types'
 import { formatDate, plural } from '../../lib/format'
@@ -97,38 +98,12 @@ export default function PayslipsScreen({
             <Spinner /> Loading payslips
           </Card>
         ) : searching ? (
-          <SearchingCard label={searchingLabel} />
+          <Card><DocStackLoader label={`Fetching your ${searchingLabel} payslip`} /></Card>
         ) : !shown ? (
           <Hint icon="receipt" title="Your payslip will show here" message="Pick a month and year above and tap Get details." />
         ) : result ? (
           <Spotlight on={!!focusId && result.id === focusId}>
-            <Card className="result-pop overflow-hidden">
-              <div className="flex items-center gap-4 px-4 py-4">
-                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-lavender-50 text-lavender-600">
-                  <Icon name="receipt" className="h-6 w-6" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[17px] font-bold text-ink">{shownLabel}</span>
-                  <span className="block text-[13px] text-ink-muted">Issued {formatDate(result.issuedOn)}</span>
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-3 border-t border-line px-4 py-3">
-                <button
-                  type="button"
-                  onClick={() => onView(result)}
-                  className="press flex h-12 items-center justify-center gap-2 rounded-2xl bg-royal-50 text-[15px] font-semibold text-royal-700 ring-1 ring-inset ring-royal-100 transition-transform duration-150"
-                >
-                  <Icon name="eye" className="h-5 w-5" /> View
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDownload(result)}
-                  className="press save-cta flex h-12 items-center justify-center gap-2 rounded-2xl text-[15px] font-semibold text-white transition-transform duration-150"
-                >
-                  <Icon name="download" className="h-5 w-5" /> Download
-                </button>
-              </div>
-            </Card>
+            <FoundCard icon="receipt" title={shownLabel} issuedOn={result.issuedOn} onView={() => onView(result)} onDownload={() => onDownload(result)} />
           </Spotlight>
         ) : (
           <Hint
@@ -142,25 +117,8 @@ export default function PayslipsScreen({
   )
 }
 
-/** While searching: a payslip being scanned, with three bouncing dots. */
-function SearchingCard({ label }: { label: string }) {
-  return (
-    <Card className="flex flex-col items-center px-6 py-9 text-center" aria-live="polite">
-      <span className="relative grid h-20 w-16 place-items-center overflow-hidden rounded-2xl bg-lavender-50 text-lavender-600 ring-1 ring-inset ring-lavender-100">
-        <Icon name="receipt" className="h-9 w-9" />
-        <span aria-hidden className="scan-line absolute inset-x-1 h-1 rounded-full bg-royal-600/70" />
-      </span>
-      <p className="mt-4 text-[15px] font-semibold text-ink">Searching for {label}</p>
-      <span aria-hidden className="mt-2 flex gap-1.5">
-        {[0, 1, 2].map((i) => (
-          <span key={i} className="search-dot h-2 w-2 rounded-full bg-royal-600" style={{ animationDelay: `${i * 0.15}s` }} />
-        ))}
-      </span>
-    </Card>
-  )
-}
-
-function Hint({ icon, title, message }: { icon: 'receipt' | 'info'; title: string; message: string }) {
+/** An empty or not-found message (shared with Documents). */
+export function Hint({ icon, title, message }: { icon: 'receipt' | 'info' | 'file'; title: string; message: string }) {
   return (
     <Card className="flex flex-col items-center px-6 py-9 text-center">
       <span className="grid h-12 w-12 place-items-center rounded-2xl bg-mist-50 text-mist-500 ring-1 ring-inset ring-mist-100">
@@ -168,6 +126,45 @@ function Hint({ icon, title, message }: { icon: 'receipt' | 'info'; title: strin
       </span>
       <p className="mt-3 text-[15px] font-semibold text-ink">{title}</p>
       <p className="mt-1 max-w-64 text-[13px] text-ink-muted">{message}</p>
+    </Card>
+  )
+}
+
+/** The fetched payslip or document: name, issue date, then View and Download side by side. */
+export function FoundCard({ icon, title, issuedOn, onView, onDownload }: {
+  icon: 'receipt' | 'file'
+  title: string
+  issuedOn: string
+  onView: () => void
+  onDownload: () => void
+}) {
+  return (
+    <Card className="result-pop overflow-hidden">
+      <div className="flex items-center gap-4 px-4 py-4">
+        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-lavender-50 text-lavender-600">
+          <Icon name={icon} className="h-6 w-6" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[17px] font-bold text-ink [overflow-wrap:anywhere]">{title}</span>
+          <span className="block text-[13px] text-ink-muted">Issued {formatDate(issuedOn)}</span>
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 border-t border-line px-4 py-3">
+        <button
+          type="button"
+          onClick={onView}
+          className="press flex h-12 items-center justify-center gap-2 rounded-2xl bg-royal-50 text-[15px] font-semibold text-royal-700 ring-1 ring-inset ring-royal-100 transition-transform duration-150"
+        >
+          <Icon name="eye" className="h-5 w-5" /> View
+        </button>
+        <button
+          type="button"
+          onClick={onDownload}
+          className="press save-cta flex h-12 items-center justify-center gap-2 rounded-2xl text-[15px] font-semibold text-white transition-transform duration-150"
+        >
+          <Icon name="download" className="h-5 w-5" /> Download
+        </button>
+      </div>
     </Card>
   )
 }

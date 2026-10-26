@@ -7,6 +7,7 @@ import { EmptyState, List, StatusBadge } from '../../components/ui'
 import type { Timesheet } from '../../data/types'
 import { formatShortDate } from '../../lib/format'
 import { groupByWeek, statusBreakdown, toggleWeek, weekSummaryLine } from '../../lib/timesheetHistory'
+import { recentItems } from '../../lib/recentItems'
 
 /** The icon tile's colours for a week's status. */
 export function statusTile(status: string): string {
@@ -17,16 +18,19 @@ export function statusTile(status: string): string {
 }
 
 export default function WeeklyTimesheetHistory({
-  items, highlightWeek = null,
+  items, highlightWeek = null, limit,
 }: {
   items: Timesheet[]
+  /** Show only the newest this many weeks (the highlighted week always shows). */
+  limit?: number
   /** A week (its Monday) a tapped notification points at: shown open and outlined. */
   highlightWeek?: string | null
 }) {
-  const weeks = useMemo(() => groupByWeek(items), [items])
+  const allWeeks = useMemo(() => groupByWeek(items), [items])
+  const weeks = limit ? recentItems(allWeeks, limit, (w) => w.weekStart === highlightWeek) : allWeeks
   const [open, setOpen] = useState<Set<string>>(() => new Set(highlightWeek ? [highlightWeek] : []))
 
-  if (weeks.length === 0) {
+  if (allWeeks.length === 0) {
     return <EmptyState icon="clock" title="No timesheets yet" message="Weeks you submit will appear here with their approval status." />
   }
 
@@ -48,15 +52,16 @@ export default function WeeklyTimesheetHistory({
               <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${statusTile(week.status)}`}>
                 <Icon name="clock" className="h-[22px] w-[22px]" />
               </span>
+              {/* Dates on their own line, status under them: nothing gets cut off. */}
               <span className="min-w-0 flex-1">
-                <span className="tnum block truncate text-[15px] font-semibold text-ink">{week.label}</span>
-                <span className="tnum mt-0.5 block truncate text-[13px] text-ink-muted">
-                  {weekSummaryLine(week)}
-                  {week.submittedOn && ` · sent ${formatShortDate(week.submittedOn)}`}
+                <span className="tnum block text-[15.5px] font-semibold leading-snug text-ink">{week.label}</span>
+                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <StatusBadge status={week.status} />
+                  <span className="tnum text-[13px] text-ink-muted">{weekSummaryLine(week)}</span>
                 </span>
-                {breakdown && <span className="mt-0.5 block truncate text-[12px] text-ink-muted">{breakdown}</span>}
+                {week.submittedOn && <span className="tnum mt-0.5 block text-[12px] text-ink-muted">Sent {formatShortDate(week.submittedOn)}</span>}
+                {breakdown && <span className="mt-0.5 block text-[12px] text-ink-muted">{breakdown}</span>}
               </span>
-              <StatusBadge status={week.status} />
               <Icon
                 name="chevronRight"
                 className={`h-[18px] w-[18px] shrink-0 text-ink-muted/70 transition-transform ${isOpen ? 'rotate-90' : ''}`}

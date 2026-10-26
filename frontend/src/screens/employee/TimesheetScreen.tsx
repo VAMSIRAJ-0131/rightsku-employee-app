@@ -716,7 +716,7 @@ function ConfirmDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfir
               onConfirm()
             }}
             disabled={answered}
-            className="h-12 rounded-lg bg-navy-900 text-[15px] font-semibold text-white hover:bg-navy-800 disabled:opacity-60"
+            className="press save-cta h-12 rounded-xl text-[15px] font-semibold text-white transition-transform duration-150 disabled:opacity-60"
           >
             Confirm
           </button>
