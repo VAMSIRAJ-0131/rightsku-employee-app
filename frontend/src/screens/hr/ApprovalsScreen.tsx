@@ -260,7 +260,7 @@ export default function ApprovalsScreen({
 
 /* ---------- Cards ---------- */
 
-function CardHeader({ name, code, status }: { name: string | null; code: string | null; status: string }) {
+export function CardHeader({ name, code, status }: { name: string | null; code: string | null; status: string }) {
   return (
     <div className="flex items-center gap-3">
       <Avatar name={name ?? '?'} size="sm" />
@@ -273,7 +273,7 @@ function CardHeader({ name, code, status }: { name: string | null; code: string 
   )
 }
 
-function DecisionButtons({ onDecide, label }: { onDecide: (d: Decision) => void; label: string }) {
+export function DecisionButtons({ onDecide, label }: { onDecide: (d: Decision) => void; label: string }) {
   return (
     <div className="mt-3 grid grid-cols-2 gap-2">
       <Button variant="danger" onClick={() => onDecide('reject')} className="w-full" >
@@ -286,7 +286,7 @@ function DecisionButtons({ onDecide, label }: { onDecide: (d: Decision) => void;
   )
 }
 
-function DecidedLine({ status, at, note }: { status: string; at: string | null; note: string | null }) {
+export function DecidedLine({ status, at, note }: { status: string; at: string | null; note: string | null }) {
   return (
     <p className="mt-2.5 border-t border-line pt-2.5 text-[12px] leading-relaxed text-ink-muted">
       {statusLabel(status)}{at ? ` on ${formatShortDate(at.slice(0, 10))}` : ''}
@@ -422,7 +422,7 @@ function CompOffCard({ request, onDecide }: { request: CompOffRequestRecord; onD
 
 /* ---------- Confirmation sheet ---------- */
 
-function DecisionSheet({
+export function DecisionSheet({
   decision, question, saving, error, onCancel, onConfirm,
 }: {
   decision: Decision

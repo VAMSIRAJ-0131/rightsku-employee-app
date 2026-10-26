@@ -21,15 +21,18 @@ public interface CompOffRequestRepository extends JpaRepository<CompOffRequest, 
     @Query("SELECT r FROM CompOffRequest r WHERE r.id = :id")
     Optional<CompOffRequest> findForUpdate(@Param("id") Long id);
 
-    /** A pending or approved request for this day (a rejected one does not count). */
+    /** A pending or approved request for this day (a rejected or cancelled one does not count). */
     @Query("SELECT r FROM CompOffRequest r WHERE r.employeeId = :employeeId AND r.workDate = :day "
-            + "AND r.status <> 'REJECTED'")
+            + "AND r.status NOT IN ('REJECTED', 'CANCELLED')")
     List<CompOffRequest> activeOn(@Param("employeeId") Long employeeId, @Param("day") LocalDate day);
 
     /** Pending or approved requests on or after a date (a schedule change must not turn them into working days). */
     @Query("SELECT r FROM CompOffRequest r WHERE r.employeeId = :employeeId AND r.workDate >= :from "
-            + "AND r.status <> 'REJECTED' ORDER BY r.workDate")
+            + "AND r.status NOT IN ('REJECTED', 'CANCELLED') ORDER BY r.workDate")
     List<CompOffRequest> activeFrom(@Param("employeeId") Long employeeId, @Param("from") LocalDate from);
+
+    /** Every employee's requests for days in a range: for HR exports. */
+    List<CompOffRequest> findByWorkDateBetweenOrderByWorkDateAscIdAsc(LocalDate from, LocalDate to);
 
     @Query(value = "SELECT status, count(*) FROM comp_off_requests GROUP BY status", nativeQuery = true)
     List<Object[]> countByStatusGrouped();

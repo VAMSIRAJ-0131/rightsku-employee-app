@@ -31,6 +31,7 @@ export type NotificationTarget =
   | { screen: 'timesheet'; key: string | null }
   | { screen: 'holidays' }
   | { screen: 'leave' }
+  | { screen: 'profile' }
   | { screen: 'notifications' }
 
 /**
@@ -43,6 +44,7 @@ export function notificationTarget(n: Pick<NotificationRecord, 'type' | 'linkTyp
   // Specific types first: "LEAVE_BALANCE_UPDATED" must not fall under the LEAVE_ requests rule.
   if (type === 'HOLIDAYS_UPDATED') return { screen: 'holidays' }
   if (type === 'LEAVE_BALANCE_UPDATED') return { screen: 'leave' }
+  if (type.startsWith('PROFILE_CHANGE_')) return { screen: 'profile' }
   if (n.linkType === 'COMP_OFF_REQUEST' || type.startsWith('COMP_OFF_')) return { screen: 'compoff', key }
   if (n.linkType === 'SCHEDULE' || type === 'SCHEDULE_CHANGED') return { screen: 'schedule', key }
   if (n.linkType === 'LEAVE_REQUEST' || type.startsWith('LEAVE_')) return { screen: 'requests', view: 'leaves', key }

@@ -26,6 +26,11 @@ public class Notification {
     public static final String LEAVE_PENDING_REMINDER = "LEAVE_PENDING_REMINDER";
     public static final String COMP_OFF_PENDING_REMINDER = "COMP_OFF_PENDING_REMINDER";
     public static final String PENDING_APPROVALS_REMINDER = "PENDING_APPROVALS_REMINDER";
+    public static final String LEAVE_CANCELLED = "LEAVE_CANCELLED";
+    public static final String COMP_OFF_CANCELLED = "COMP_OFF_CANCELLED";
+    public static final String PROFILE_CHANGE_REQUESTED = "PROFILE_CHANGE_REQUESTED";
+    public static final String PROFILE_CHANGE_APPROVED = "PROFILE_CHANGE_APPROVED";
+    public static final String PROFILE_CHANGE_REJECTED = "PROFILE_CHANGE_REJECTED";
 
     static final int MAX_TITLE = 150;
     static final int MAX_MESSAGE = 500;

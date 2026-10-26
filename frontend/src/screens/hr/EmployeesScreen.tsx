@@ -1,5 +1,6 @@
 // HR Admin: employee list, search and filter, add, view, edit, activate/deactivate.
 // All data comes from the backend (/api/hr/employees); nothing is stored locally.
+import EmployeePersonalDetails from './EmployeePersonalDetails'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icons'
 import {
@@ -507,6 +508,8 @@ function EmployeeDetails({
               </div>
             )}
           </Section>
+
+          <EmployeePersonalDetails token={token} employeeId={record.id} onError={onError} />
 
           <ScheduleSection
             token={token}

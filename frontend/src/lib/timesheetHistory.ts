@@ -101,7 +101,8 @@ export function toggleWeek(open: ReadonlySet<string>, weekStart: string): Set<st
 
 /* ---------- Home: the month, week by week ---------- */
 
-export type MonthWeekStatus = Status | 'Not submitted'
+// Timesheets are never cancelled (only leave and Comp-Off requests are).
+export type MonthWeekStatus = Exclude<Status, 'Cancelled'> | 'Not submitted'
 
 export interface MonthWeek {
   /** "Week 1" ... "Week 5". */

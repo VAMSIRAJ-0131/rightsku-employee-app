@@ -21,6 +21,9 @@ public interface TimesheetEntryRepository extends JpaRepository<TimesheetEntry, 
             Long employeeId, LocalDate from);
 
     /** Every employee's entries with one status, from a date on (HR review lists). */
+    /** Every employee's entries in a date range: for HR exports. */
+    List<TimesheetEntry> findByWorkDateBetweenOrderByWorkDateAscEmployeeIdAsc(LocalDate from, LocalDate to);
+
     List<TimesheetEntry> findByStatusAndWorkDateGreaterThanEqualOrderByWorkDateDesc(String status, LocalDate from);
 
     /**

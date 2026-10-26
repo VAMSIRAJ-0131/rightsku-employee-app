@@ -95,6 +95,11 @@ export function requestCompOff(token: string, values: CompOffFormValues) {
   })
 }
 
+/** Withdraws one of the employee's own pending Comp-Off requests. */
+export function cancelCompOff(token: string, id: number) {
+  return apiRequest<CompOffRequestRecord>(`/api/employee/comp-off-requests/${id}/cancel`, { token, method: 'POST' })
+}
+
 /* ---------- API: HR ---------- */
 
 export function listCompOffRequests(token: string, status: 'PENDING' | 'APPROVED' | 'REJECTED', signal?: AbortSignal) {

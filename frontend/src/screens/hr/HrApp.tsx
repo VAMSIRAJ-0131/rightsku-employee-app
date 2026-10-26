@@ -20,10 +20,14 @@ import EmployeesScreen from './EmployeesScreen'
 import HolidaysScreen from './HolidaysScreen'
 import HrDocumentsScreen from './HrDocumentsScreen'
 import SalarySummaryScreen from './SalarySummaryScreen'
+import ProfileChangesScreen from './ProfileChangesScreen'
+import ActivityScreen from './ActivityScreen'
+import ExportsSection from './ExportsSection'
+import { countPendingProfileChanges } from '../../lib/profileChanges'
 import { startPush } from '../../lib/push'
 
 type Tab = 'home' | 'approvals' | 'employees' | 'documents'
-type SubScreen = 'roles' | 'reports' | 'audit' | 'holidays' | 'salary' | 'company' | null
+type SubScreen = 'roles' | 'reports' | 'audit' | 'holidays' | 'salary' | 'company' | 'profileChanges' | null
 
 export default function HrApp({
   user,
@@ -42,7 +46,7 @@ export default function HrApp({
   onLogout: () => void
   onSessionExpired: () => void
 }) {
-  const { documents, employees, auditLog } = data
+  const { documents, employees } = data
   const [tab, setTab] = useState<Tab>('home')
   const [sub, setSub] = useState<SubScreen>(null)
   const [approvalView, setApprovalView] = useState<ApprovalView>('timesheets')
@@ -55,14 +59,19 @@ export default function HrApp({
   const [countsVersion, setCountsVersion] = useState(0)
   const [counts, setCounts] = useState<{ active: number; inactive: number } | null>(null)
 
-  // Pushes to HR's phone (for example requests waiting 2 days or more):
-  // tapping one opens the leave approvals queue.
+  // Pushes to HR's phone (requests waiting 2 days or more, cancellations,
+  // profile updates): tapping one opens the matching screen.
   useEffect(() => {
     void startPush(
       token,
-      () => {
+      (data) => {
+        if (data.type === 'PROFILE_CHANGE_REQUESTED') {
+          setTab('home')
+          setSub('profileChanges')
+          return
+        }
         setSub(null)
-        setApprovalView('leaves')
+        setApprovalView(data.type === 'COMP_OFF_CANCELLED' ? 'compoff' : 'leaves')
         setApprovalStatus('PENDING')
         setOpenCount((n) => n + 1)
         setTab('approvals')
@@ -81,6 +90,17 @@ export default function HrApp({
     })
     return () => controller.abort()
   }, [token, countsVersion, onSessionExpired])
+
+  // Profile updates waiting for HR (Administration row). Reloaded after every decision.
+  const [profilePending, setProfilePending] = useState<number | null>(null)
+  const [profileVersion, setProfileVersion] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    countPendingProfileChanges(token, controller.signal).then((r) => {
+      if (!controller.signal.aborted && r.ok) setProfilePending(r.data.pending)
+    })
+    return () => controller.abort()
+  }, [token, profileVersion, sub])
 
   // Approvals: counts and pending lists, always from the server. Reloaded after every decision.
   const [approvalsVersion, setApprovalsVersion] = useState(0)
@@ -171,7 +191,12 @@ export default function HrApp({
   }
 
   let screen: ReactNode
-  if (sub === 'company') {
+  if (sub === 'profileChanges') {
+    screen = (
+      <ProfileChangesScreen token={token} onBack={() => setSub(null)} onChanged={() => setProfileVersion((v) => v + 1)}
+        onError={handleError} onToast={show} />
+    )
+  } else if (sub === 'company') {
     screen = <CompanyProfileScreen token={token} onBack={() => setSub(null)} onToast={show} onError={handleError} />
   } else if (sub === 'salary') {
     screen = <SalarySummaryScreen token={token} onBack={() => setSub(null)} onToast={show} onError={handleError} />
@@ -232,41 +257,11 @@ export default function HrApp({
             ]}
           />
         </Section>
-        <Section>
-          <Notice>Detailed reports and full approval history arrive in a later update.</Notice>
-        </Section>
+        <ExportsSection token={token} onError={handleError} onToast={show} />
       </>
     )
   } else if (sub === 'audit') {
-    screen = (
-      <>
-        <TopBar title="Audit log" subtitle="Important admin actions" onBack={() => setSub(null)} />
-        <Section>
-          {auditLog.length === 0 ? (
-            <EmptyState icon="list" title="No actions recorded yet" message="Important admin actions will be listed here." />
-          ) : (
-          <Card className="px-4 py-2">
-            <ol className="relative">
-              {auditLog.map((a, i) => (
-                <li key={a.id} className="relative flex gap-3 py-3">
-                  <span className="relative flex w-3 shrink-0 justify-center">
-                    <span className="mt-1.5 h-2 w-2 rounded-full bg-navy-700 ring-4 ring-white" />
-                    {i < auditLog.length - 1 && <span className="absolute bottom-[-14px] top-4 w-px bg-line-strong" />}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[14px] font-medium leading-snug text-ink">{a.action}</p>
-                    <p className="tnum mt-0.5 text-[12px] text-ink-muted">
-                      {a.actor}, {a.time}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </Card>
-          )}
-        </Section>
-      </>
-    )
+    screen = <ActivityScreen token={token} onBack={() => setSub(null)} onError={handleError} />
   } else if (tab === 'home') {
     const queue = [
       ...pendingWeeks.map((w) => ({
@@ -376,8 +371,11 @@ export default function HrApp({
             <AdminRow icon="wallet" title="Salary summary" meta="Monthly payroll days" onClick={() => setSub('salary')} />
             <AdminRow icon="calendar" title="Holiday calendar" meta="Company holidays" onClick={() => setSub('holidays')} />
             <AdminRow icon="shield" title="Roles and access" meta={`${employees.length} accounts`} onClick={() => setSub('roles')} />
-            <AdminRow icon="chart" title="Reports" meta="Summary" onClick={() => setSub('reports')} />
-            <AdminRow icon="list" title="Audit log" meta={`${auditLog.length} recent`} onClick={() => setSub('audit')} />
+            <AdminRow icon="user" title="Profile update requests"
+              meta={profilePending === null ? 'Contact and bank details' : profilePending ? `${profilePending} waiting` : 'None waiting'}
+              onClick={() => setSub('profileChanges')} />
+            <AdminRow icon="chart" title="Reports and exports" meta="Summary, Excel downloads" onClick={() => setSub('reports')} />
+            <AdminRow icon="list" title="Activity" meta="Who did what, and when" onClick={() => setSub('audit')} />
             {appLock && <AdminRow icon="fingerprint" title="App lock" meta={appLock.label} onClick={appLock.onOpen} />}
           </List>
         </Section>

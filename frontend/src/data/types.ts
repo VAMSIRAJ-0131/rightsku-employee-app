@@ -8,7 +8,7 @@
  */
 
 export type Role = 'employee' | 'hr'
-export type Status = 'Pending' | 'Approved' | 'Rejected'
+export type Status = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled'
 export type DocType = 'Offer Letter' | 'Experience Letter' | 'Payslip' | 'Form 16' | 'Appraisal Letter'
 
 export interface Employee {

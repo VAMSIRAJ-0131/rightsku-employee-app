@@ -118,6 +118,25 @@ public class CompOffRequestService {
         return CompOffRequestResponse.from(saved, me, plan);
     }
 
+    /** The employee withdraws their own pending request; HR is told. Someone else's answers 404. */
+    @Transactional
+    public CompOffRequestResponse cancel(long userId, long requestId) {
+        Employee me = currentEmployee(userId);
+        employees.lockById(me.getId());
+        CompOffRequest request = requests.findForUpdate(requestId)
+                .filter(r -> r.getEmployeeId().equals(me.getId()))
+                .orElseThrow(() -> ApiException.notFound("Comp-Off request not found."));
+        if (!CompOffRequest.STATUS_PENDING.equals(request.getStatus())) {
+            throw ApiException.conflict(null, "This Comp-Off request was already "
+                    + request.getStatus().toLowerCase(Locale.ROOT) + ", so it can't be cancelled.");
+        }
+        request.cancel(clock.instant());
+        requests.saveAndFlush(request);
+        audit.save(AuditEntry.of(userId, "COMP_OFF_CANCELLED", "COMP_OFF_REQUEST", String.valueOf(request.getId())));
+        notifications.compOffCancelled(me, request);
+        return response(request, me);
+    }
+
     /* ---------- HR ---------- */
 
     @Transactional(readOnly = true)

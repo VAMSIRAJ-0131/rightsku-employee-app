@@ -36,12 +36,20 @@ public class NotificationService {
     private final NotificationRepository notifications;
     private final Clock clock;
     private final ApplicationEventPublisher events;
+    /** To find the HR Admins for notifications meant for HR (null in unit tests: none are sent). */
+    private final AppUserRepository users;
 
     @Autowired
-    public NotificationService(NotificationRepository notifications, Clock clock, ApplicationEventPublisher events) {
+    public NotificationService(NotificationRepository notifications, Clock clock, ApplicationEventPublisher events,
+            AppUserRepository users) {
         this.notifications = notifications;
         this.clock = clock;
         this.events = events;
+        this.users = users;
+    }
+
+    public NotificationService(NotificationRepository notifications, Clock clock, ApplicationEventPublisher events) {
+        this(notifications, clock, events, null);
     }
 
     /** Without pushes (unit tests). */
@@ -154,6 +162,50 @@ public class NotificationService {
                 + (compOffs > 0 ? compOffs + " Comp-Off " + (compOffs == 1 ? "request" : "requests") : "");
         sendToUser(hrUserId, Notification.PENDING_APPROVALS_REMINDER, "Requests waiting for you",
                 what + " waited 2 days or more. Please approve or reject them.", null, null);
+    }
+
+    /** (HR) An employee withdrew pending leave. */
+    void leaveCancelled(Employee employee, LeaveRequest request) {
+        String type = LeaveType.valueOf(request.getLeaveType()).label();
+        String dates = DAY.format(request.getStartDate())
+                + (request.getEndDate().equals(request.getStartDate()) ? "" : " to " + DAY.format(request.getEndDate()));
+        toHrAdmins(Notification.LEAVE_CANCELLED, "Leave request cancelled",
+                who(employee) + " cancelled their " + type + " leave request for " + dates + ".");
+    }
+
+    /** (HR) An employee withdrew a pending Comp-Off request. */
+    void compOffCancelled(Employee employee, CompOffRequest request) {
+        toHrAdmins(Notification.COMP_OFF_CANCELLED, "Comp-Off request cancelled",
+                who(employee) + " cancelled their Comp-Off request for " + DAY.format(request.getWorkDate()) + ".");
+    }
+
+    /** (HR) An employee asked to change personal details. */
+    void profileChangeRequested(Employee employee, java.util.List<String> fieldLabels) {
+        toHrAdmins(Notification.PROFILE_CHANGE_REQUESTED, "Profile update request",
+                who(employee) + " asked to update: " + String.join(", ", fieldLabels) + ".");
+    }
+
+    /** The employee's personal details change was approved (and saved) or rejected. */
+    void profileChangeDecided(Employee employee, boolean approved, String note) {
+        send(employee, approved ? Notification.PROFILE_CHANGE_APPROVED : Notification.PROFILE_CHANGE_REJECTED,
+                "Profile update " + (approved ? "approved" : "rejected"),
+                approved ? "HR approved your profile update. Your details are updated." + withNote(note)
+                        : "HR rejected your profile update." + withNote(note),
+                null, null);
+    }
+
+    private void toHrAdmins(String type, String title, String message) {
+        if (users == null) {
+            return;
+        }
+        for (AppUser hr : users.findByRoleAndActiveTrue(AppUser.ROLE_HR_ADMIN)) {
+            sendToUser(hr.getId(), type, title, message, null, null);
+        }
+    }
+
+    /** "Priya Shah (EMP004)". */
+    private static String who(Employee e) {
+        return (e.getFirstName() + " " + e.getLastName()).trim() + " (" + e.getEmployeeCode() + ")";
     }
 
     private static String dayWord(java.math.BigDecimal days) {

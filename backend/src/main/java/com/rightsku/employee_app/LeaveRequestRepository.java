@@ -33,6 +33,10 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, Long
             + "AND r.startDate <= :to AND r.endDate >= :from ORDER BY r.startDate")
     List<LeaveRequest> touching(@Param("employeeId") Long employeeId, @Param("from") LocalDate from, @Param("to") LocalDate to);
 
+    /** Every employee's requests (any status) that touch the dates from..to: for HR exports. */
+    @Query("SELECT r FROM LeaveRequest r WHERE r.startDate <= :to AND r.endDate >= :from ORDER BY r.startDate, r.employeeId")
+    List<LeaveRequest> overlapping(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
     /** Pending and approved requests that end on or after a date (a schedule change must not change their days). */
     @Query("SELECT r FROM LeaveRequest r WHERE r.employeeId = :employeeId AND r.endDate >= :from "
             + "AND r.status IN ('PENDING', 'APPROVED') ORDER BY r.startDate")

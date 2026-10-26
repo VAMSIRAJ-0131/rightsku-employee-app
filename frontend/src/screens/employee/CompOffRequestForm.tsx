@@ -5,13 +5,14 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icons'
 import Spotlight from '../../components/Spotlight'
+import ConfirmSheet from '../../components/ConfirmSheet'
 import { Button, Card, EmptyState, List, Notice, Section, Spinner, StatusBadge } from '../../components/ui'
 import { statusTile } from './WeeklyTimesheetHistory'
 import type { ApiError } from '../../lib/api'
 import { toIsoDate } from '../../lib/format'
 import { statusLabel } from '../../lib/approvalView'
 import {
-  compOffDayChoices, compOffDayLabel, compOffDaysLabel, compOffWindow, listMyCompOffRequests, requestCompOff,
+  cancelCompOff, compOffDayChoices, compOffDayLabel, compOffDaysLabel, compOffWindow, listMyCompOffRequests, requestCompOff,
   validateCompOff, type CompOffFormErrors, type CompOffFormValues, type CompOffRequestRecord,
 } from '../../lib/compOffRequests'
 import { getMyCalendar, type CalendarDay } from '../../lib/workCalendar'
@@ -36,6 +37,17 @@ export default function CompOffRequestForm({
   const [version, setVersion] = useState(0)
   const [saving, setSaving] = useState(false)
   const [sent, setSent] = useState<string | null>(null)
+  const [toCancel, setToCancel] = useState<CompOffRequestRecord | null>(null)
+
+  async function cancelRequest(r: CompOffRequestRecord) {
+    setToCancel(null)
+    const result = await cancelCompOff(token, r.id)
+    if (result.ok) {
+      setSent(`Comp-Off request for ${compOffDayLabel({ date: r.workDate, kind: r.dayKind === 'HOLIDAY' ? 'HOLIDAY' : 'WEEKLY_OFF', holidayName: r.holidayName }).split(' · ')[0]} cancelled.`)
+      setVersion((v) => v + 1)
+      onSubmitted()
+    } else setErrors({ form: onError(result.error).message })
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -208,6 +220,15 @@ export default function CompOffRequestForm({
                         <span className="text-[13px] text-ink-muted">{compOffDaysLabel(r.days)}</span>
                       </span>
                       <p className="mt-1 text-[13px] leading-snug text-ink-soft">{r.reason}</p>
+                      {r.status === 'PENDING' && (
+                        <button
+                          type="button"
+                          onClick={() => setToCancel(r)}
+                          className="press mt-2 inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3.5 text-[13px] font-semibold text-bad ring-1 ring-inset ring-bad/30 transition-transform duration-150"
+                        >
+                          <Icon name="x" className="h-4 w-4" /> Cancel request
+                        </button>
+                      )}
                       {r.reviewNote && (
                         <div className="mt-2 rounded-md border-l-2 border-line-strong bg-mist-50 px-3 py-2 text-[12px] leading-relaxed text-ink-soft">
                           <span className="font-semibold">HR note:</span> {r.reviewNote}
@@ -221,6 +242,16 @@ export default function CompOffRequestForm({
           </List>
         )}
       </Section>
+      {toCancel && (
+        <ConfirmSheet
+          title="Cancel this Comp-Off request?"
+          message="HR will be told. You can ask for this day again later."
+          confirmLabel="Cancel request"
+          danger
+          onCancel={() => setToCancel(null)}
+          onConfirm={() => void cancelRequest(toCancel)}
+        />
+      )}
     </>
   )
 }

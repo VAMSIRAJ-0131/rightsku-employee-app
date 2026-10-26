@@ -39,6 +39,25 @@ public class Employee {
     @Column(length = 100)
     private String department;
 
+    /* Personal details (V19): changed through the employee's requests that HR approves. */
+    @Column(length = 300)
+    private String address;
+
+    @Column(name = "emergency_contact_name", length = 100)
+    private String emergencyContactName;
+
+    @Column(name = "emergency_contact_phone", length = 20)
+    private String emergencyContactPhone;
+
+    @Column(name = "bank_account_name", length = 100)
+    private String bankAccountName;
+
+    @Column(name = "bank_account_number", length = 18)
+    private String bankAccountNumber;
+
+    @Column(name = "bank_ifsc", length = 11)
+    private String bankIfsc;
+
     @Column(name = "job_title", length = 100)
     private String jobTitle;
 
@@ -100,6 +119,43 @@ public class Employee {
         this.gender = gender;
         this.namePrefix = namePrefix;
         this.companyAddressId = companyAddressId;
+    }
+
+    /** Saves one personal detail (already cleaned by ProfileField; null removes it). */
+    void setPersonalDetail(ProfileField field, String value) {
+        switch (field) {
+            case PHONE -> this.phone = value;
+            case ADDRESS -> this.address = value;
+            case EMERGENCY_CONTACT_NAME -> this.emergencyContactName = value;
+            case EMERGENCY_CONTACT_PHONE -> this.emergencyContactPhone = value;
+            case BANK_ACCOUNT_NAME -> this.bankAccountName = value;
+            case BANK_ACCOUNT_NUMBER -> this.bankAccountNumber = value;
+            case BANK_IFSC -> this.bankIfsc = value;
+        }
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public String getEmergencyContactName() {
+        return emergencyContactName;
+    }
+
+    public String getEmergencyContactPhone() {
+        return emergencyContactPhone;
+    }
+
+    public String getBankAccountName() {
+        return bankAccountName;
+    }
+
+    public String getBankAccountNumber() {
+        return bankAccountNumber;
+    }
+
+    public String getBankIfsc() {
+        return bankIfsc;
     }
 
     public String getGender() {

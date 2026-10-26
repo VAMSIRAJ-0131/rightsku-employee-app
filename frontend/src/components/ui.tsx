@@ -313,6 +313,7 @@ export function StatusBadge({ status }: { status: BadgeStatus }) {
     Active: { box: 'bg-ok-soft text-ok', dot: 'bg-ok' },
     Available: { box: 'bg-ok-soft text-ok', dot: 'bg-ok' },
     Rejected: { box: 'bg-rejected-soft text-rejected-ink ring-1 ring-inset ring-rejected/40', dot: 'bg-rejected' },
+    Cancelled: { box: 'bg-mist-50 text-ink-muted ring-1 ring-inset ring-line-strong', dot: 'bg-ink-muted' },
     Mixed: { box: 'bg-mist-50 text-navy-700 ring-1 ring-inset ring-mist-100', dot: 'bg-navy-700' },
     Inactive: { box: 'bg-mist-50 text-ink-muted', dot: 'bg-ink-muted' },
     'Not issued': { box: 'bg-mist-50 text-ink-muted', dot: 'bg-mist-300' },

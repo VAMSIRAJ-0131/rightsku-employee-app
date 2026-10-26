@@ -24,6 +24,8 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSp
     /** The employee record of a signed-in employee (token subject = app_users.id). */
     Optional<Employee> findByUser_Id(Long userId);
 
+    Optional<Employee> findByEmployeeCodeIgnoreCase(String employeeCode);
+
     long countByEmploymentStatus(String employmentStatus);
 
     /**

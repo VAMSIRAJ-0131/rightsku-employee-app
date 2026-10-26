@@ -92,7 +92,7 @@ export interface LeaveRequestRecord {
   reviewNote: string | null
 }
 
-const STATUS: Record<string, Status> = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected' }
+const STATUS: Record<string, Status> = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected', CANCELLED: 'Cancelled' }
 
 /** Numbers like 7.5 or "7.5" -> 7.5. */
 export function days(value: number | string | null | undefined): number {
@@ -198,6 +198,11 @@ export function applyForLeave(token: string, values: LeaveFormValues) {
     method: 'POST',
     body: { leaveType: values.leaveType, startDate: values.startDate, endDate: values.endDate, reason: values.reason.trim() },
   })
+}
+
+/** Withdraws one of the employee's own pending leave requests. */
+export function cancelLeave(token: string, id: string | number) {
+  return apiRequest<LeaveRequestRecord>(`/api/employee/leave/requests/${id}/cancel`, { token, method: 'POST' })
 }
 
 /* ---------- API: HR ---------- */

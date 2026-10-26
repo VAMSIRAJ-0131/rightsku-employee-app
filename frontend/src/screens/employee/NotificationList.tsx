@@ -8,6 +8,8 @@ import { timeAgo, type NotificationRecord } from '../../lib/notifications'
 
 /** Icon and colours for a notification type. */
 export function notificationLook(type: string): { icon: IconName; tile: string } {
+  if (type === 'PROFILE_CHANGE_REQUESTED') return { icon: 'user', tile: 'bg-royal-50 text-royal-700' }
+  if (type.endsWith('_CANCELLED')) return { icon: 'x', tile: 'bg-mist-50 text-ink-muted' }
   if (type.endsWith('_APPROVED')) return { icon: 'check', tile: 'bg-approved-soft text-approved-ink' }
   if (type.endsWith('_REJECTED')) return { icon: 'x', tile: 'bg-rejected-soft text-rejected-ink' }
   if (type.endsWith('_REMINDER')) return { icon: 'clock', tile: 'bg-pending-soft text-pending-ink' }

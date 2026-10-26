@@ -171,7 +171,7 @@ public class LeaveService {
             throw ApiException.invalid("endDate", "These dates are all weekly offs or company holidays, so no leave is needed.");
         }
         for (LeaveRequest other : requests.touching(me.getId(), start, end)) {
-            if (!LeaveRequest.STATUS_REJECTED.equals(other.getStatus())) {
+            if (LeaveRequest.STATUS_PENDING.equals(other.getStatus()) || LeaveRequest.STATUS_APPROVED.equals(other.getStatus())) {
                 throw ApiException.conflict("startDate", "You already have " + other.getStatus().toLowerCase(Locale.ROOT)
                         + " leave from " + DAY.format(other.getStartDate()) + " to " + DAY.format(other.getEndDate()) + ".");
             }
@@ -183,6 +183,29 @@ public class LeaveService {
         }
         LeaveRequest saved = requests.saveAndFlush(LeaveRequest.apply(me.getId(), type, start, end, days, reason));
         return LeaveRequestResponse.from(saved, me);
+    }
+
+    /**
+     * The employee withdraws their own pending request: its held days are
+     * free again and HR is told. Someone else's request answers 404, like a
+     * missing one; a decided request cannot be cancelled.
+     */
+    @Transactional
+    public LeaveRequestResponse cancel(long userId, long requestId) {
+        Employee me = currentEmployee(userId);
+        employees.lockById(me.getId());
+        LeaveRequest request = requests.findForUpdate(requestId)
+                .filter(r -> r.getEmployeeId().equals(me.getId()))
+                .orElseThrow(() -> ApiException.notFound("Leave request not found."));
+        if (!LeaveRequest.STATUS_PENDING.equals(request.getStatus())) {
+            throw ApiException.conflict(null, "This leave request was already "
+                    + request.getStatus().toLowerCase(Locale.ROOT) + ", so it can't be cancelled.");
+        }
+        request.cancel(clock.instant());
+        requests.saveAndFlush(request);
+        audit.save(AuditEntry.of(userId, "LEAVE_CANCELLED", "LEAVE_REQUEST", String.valueOf(request.getId())));
+        notifications.leaveCancelled(me, request);
+        return LeaveRequestResponse.from(request, me);
     }
 
     /* ---------- Requests: HR ---------- */

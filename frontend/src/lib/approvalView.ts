@@ -8,7 +8,7 @@ export type Decision = 'approve' | 'reject'
 
 export const REVIEW_STATUSES: ReviewStatus[] = ['PENDING', 'APPROVED', 'REJECTED']
 
-const LABEL: Record<string, Status> = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected' }
+const LABEL: Record<string, Status> = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected', CANCELLED: 'Cancelled' }
 
 /** "PENDING" -> "Pending" (unknown values show as Pending, the safe default). */
 export function statusLabel(status: string): Status {

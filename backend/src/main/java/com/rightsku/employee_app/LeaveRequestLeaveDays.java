@@ -24,6 +24,9 @@ public class LeaveRequestLeaveDays implements LeaveDays {
     public List<LeaveDay> leaveBetween(long employeeId, LocalDate from, LocalDate to) {
         List<LeaveDay> days = new ArrayList<>();
         for (LeaveRequest r : requests.touching(employeeId, from, to)) {
+            if (LeaveRequest.STATUS_CANCELLED.equals(r.getStatus())) {
+                continue;
+            }
             Status status = Status.valueOf(r.getStatus());
             LocalDate first = r.getStartDate().isBefore(from) ? from : r.getStartDate();
             LocalDate last = r.getEndDate().isAfter(to) ? to : r.getEndDate();

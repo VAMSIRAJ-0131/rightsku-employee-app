@@ -13,6 +13,8 @@ public class LeaveRequest {
     public static final String STATUS_PENDING = "PENDING";
     public static final String STATUS_APPROVED = "APPROVED";
     public static final String STATUS_REJECTED = "REJECTED";
+    /** Withdrawn by the employee while still pending (V19). */
+    public static final String STATUS_CANCELLED = "CANCELLED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -44,6 +46,9 @@ public class LeaveRequest {
 
     @Column(name = "reviewed_at")
     private Instant reviewedAt;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
 
     @Column(name = "review_note", length = 500)
     private String reviewNote;
@@ -77,6 +82,15 @@ public class LeaveRequest {
         this.reviewedBy = reviewer;
         this.reviewedAt = at;
         this.reviewNote = note;
+    }
+
+    /** The employee withdraws the leave request: only while it is still pending. */
+    void cancel(Instant at) {
+        if (!STATUS_PENDING.equals(status)) {
+            throw new IllegalStateException("Only a pending request can be cancelled.");
+        }
+        this.status = STATUS_CANCELLED;
+        this.cancelledAt = at;
     }
 
     @PrePersist
@@ -121,6 +135,10 @@ public class LeaveRequest {
 
     public String getStatus() {
         return status;
+    }
+
+    public Instant getCancelledAt() {
+        return cancelledAt;
     }
 
     public Instant getReviewedAt() {

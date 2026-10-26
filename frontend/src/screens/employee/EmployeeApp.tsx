@@ -29,10 +29,11 @@ import Spotlight from '../../components/Spotlight'
 import IdCardSheet from './IdCard'
 import TimesheetScreen from './TimesheetScreen'
 import LeaveScreen from './LeaveScreen'
-import { getMyLeaveBalances, getMyLeaveRequests, toLeaveBalance, toLeaveRequest, type LeaveBalanceRecord } from '../../lib/leave'
+import { cancelLeave, getMyLeaveBalances, getMyLeaveRequests, toLeaveBalance, toLeaveRequest, type LeaveBalanceRecord } from '../../lib/leave'
 import WeeklyTimesheetHistory, { statusTile } from './WeeklyTimesheetHistory'
 import PayslipsScreen from './PayslipsScreen'
 import DocumentsScreen from './DocumentsScreen'
+import { PersonalDetailsSection, ProfileEditScreen } from './PersonalDetails'
 import NotificationList from './NotificationList'
 import DocumentViewer from '../../components/DocumentViewer'
 import type { DownloadedFile } from '../../lib/api'
@@ -90,6 +91,9 @@ export default function EmployeeApp({
   const { tab, sub } = nav
   const [requestsView, setRequestsView] = useState<'timesheets' | 'leaves'>('timesheets')
   const [docFilter, setDocFilter] = useState<DocFilter>('All')
+  // Goes up when personal details may have changed (sent, decided), so Profile loads them again.
+  const [profileVersion, setProfileVersion] = useState(0)
+  const [leaveToCancel, setLeaveToCancel] = useState<LeaveRequest | null>(null)
   const { show, toast } = useToast()
   const [timesheetState, setTimesheetState] = useState<Loaded<Timesheet>>({ status: 'loading' })
   const [docState, setDocState] = useState<Loaded<EmployeeDocument>>({ status: 'loading' })
@@ -317,6 +321,10 @@ export default function EmployeeApp({
         setFocus({ tab: 'profile', sub: null, key: 'schedule' })
         goTab('profile')
         return
+      case 'profile':
+        setProfileVersion((v) => v + 1)
+        goTab('profile')
+        return
       case 'timesheet':
         // A reminder: the week it is about.
         openTimesheetWeek(target.key ?? weekStartOf(toIsoDate(new Date())))
@@ -483,6 +491,15 @@ export default function EmployeeApp({
     setViewing((v) => (v && v.doc.id === doc.id ? { doc, file: result.data } : v))
   }
 
+  async function cancelMyLeave(request: LeaveRequest) {
+    setLeaveToCancel(null)
+    const result = await cancelLeave(token, request.id)
+    if (result.ok) {
+      show('Leave request cancelled.', 'success')
+      setVersion((v) => v + 1)
+    } else show(handleError(result.error).message, 'error')
+  }
+
   async function download(doc: EmployeeDocument) {
     show('Downloading…')
     const result = await downloadMyDocument(token, doc.id, doc.title)
@@ -505,7 +522,7 @@ export default function EmployeeApp({
     ) : leaveState.status === 'loading' ? (
       <LoadingCard label="Loading leave requests" />
     ) : (
-      <LeaveList items={myLeaves} highlight={focused} />
+      <LeaveList items={myLeaves} highlight={focused} onCancel={setLeaveToCancel} />
     )
 
   const timesheetHistory =
@@ -520,7 +537,7 @@ export default function EmployeeApp({
   // Requests: only the newest few, with a note when there are more.
   const recentLeaves = leaveState.status === 'ready' ? (
     <>
-      <LeaveList items={myLeaves} highlight={focused} limit={RECENT_LIMIT} />
+      <LeaveList items={myLeaves} highlight={focused} limit={RECENT_LIMIT} onCancel={setLeaveToCancel} />
       {myLeaves.length > RECENT_LIMIT && <MoreNote text={`Showing your latest ${RECENT_LIMIT} leave applications.`} />}
     </>
   ) : leaveHistory
@@ -533,7 +550,20 @@ export default function EmployeeApp({
   ) : timesheetHistory
 
   let screen: ReactNode
-  if (sub === 'password') {
+  if (sub === 'editProfile') {
+    screen = (
+      <ProfileEditScreen
+        token={token}
+        onBack={() => setSub(null)}
+        onError={handleError}
+        onSent={() => {
+          show('Sent to HR. You’ll get a notification when they decide.', 'success')
+          setProfileVersion((v) => v + 1)
+          setSub(null)
+        }}
+      />
+    )
+  } else if (sub === 'password') {
     screen = (
       <ChangePasswordScreen
         token={token}
@@ -746,13 +776,14 @@ export default function EmployeeApp({
             <DetailRow icon="calendar" label="Joined" value={user.joiningDate ? formatDate(user.joiningDate) : ''} />
           </Card>
         </Section>
-        <Section title="Contact">
-          <Card className="divide-y divide-line">
-            <DetailRow icon="mail" label="Email" value={user.email} />
-            <DetailRow icon="phone" label="Phone" value={user.phone} />
-          </Card>
-          <p className="mt-2 px-1 text-[12px] text-ink-muted">To correct any detail, contact HR.</p>
-        </Section>
+        <PersonalDetailsSection
+          token={token}
+          email={user.email}
+          version={profileVersion}
+          onEdit={() => setSub('editProfile')}
+          onError={handleError}
+          onToast={show}
+        />
         <Section title="Work schedule">
           <Spotlight on={focused('schedule')}>
             <Card className="divide-y divide-line">
@@ -799,6 +830,16 @@ export default function EmployeeApp({
         active={tab}
         onChange={goTabGuarded}
       />
+      {leaveToCancel && (
+        <ConfirmSheet
+          title="Cancel this leave request?"
+          message={`${leaveToCancel.type} leave, ${formatShortDate(leaveToCancel.from)}${leaveToCancel.from !== leaveToCancel.to ? ` – ${formatShortDate(leaveToCancel.to)}` : ''}. HR will be told, and the days are free again.`}
+          confirmLabel="Cancel request"
+          danger
+          onCancel={() => setLeaveToCancel(null)}
+          onConfirm={() => void cancelMyLeave(leaveToCancel)}
+        />
+      )}
       {viewing && (
         <DocumentViewer
           title={viewing.doc.title.replace('Payslip - ', 'Payslip · ')}
@@ -931,12 +972,14 @@ function MoreNote({ text }: { text: string }) {
 }
 
 function LeaveList({
-  items: all, highlight, limit,
+  items: all, highlight, limit, onCancel,
 }: {
   items: LeaveRequest[]
   highlight?: (id: string) => boolean
   /** Show only the newest this many (a highlighted one always shows). */
   limit?: number
+  /** Withdraws a pending request (after a confirmation). */
+  onCancel?: (request: LeaveRequest) => void
 }) {
   const items = limit ? recentItems(newestLeaveFirst(all), limit, (l) => !!highlight?.(l.id)) : all
   if (items.length === 0)
@@ -962,6 +1005,15 @@ function LeaveList({
             {l.from !== l.to ? ` – ${formatShortDate(l.to)}` : ''}
           </p>
           {l.reason && <p className="mt-0.5 text-[13px] leading-snug text-ink-muted">{l.reason}</p>}
+          {onCancel && l.status === 'Pending' && (
+            <button
+              type="button"
+              onClick={() => onCancel(l)}
+              className="press mt-2 inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3.5 text-[13px] font-semibold text-bad ring-1 ring-inset ring-bad/30 transition-transform duration-150"
+            >
+              <Icon name="x" className="h-4 w-4" /> Cancel request
+            </button>
+          )}
           {l.status === 'Rejected' && l.remark && (
             <div className="mt-2.5 rounded-md border-l-2 border-rejected bg-rejected-soft px-3 py-2 text-[12px] leading-relaxed text-rejected-ink">
               <span className="font-semibold">HR note:</span> {l.remark}

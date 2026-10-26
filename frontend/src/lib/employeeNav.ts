@@ -6,7 +6,7 @@
 // back to, Back goes Home; on Home itself there is nowhere further back.
 
 export type EmployeeTab = 'home' | 'requests' | 'documents' | 'profile'
-export type EmployeeSubScreen = 'timesheet' | 'leave' | 'payslips' | 'notifications' | 'holidays' | 'password' | null
+export type EmployeeSubScreen = 'timesheet' | 'leave' | 'payslips' | 'notifications' | 'holidays' | 'password' | 'editProfile' | null
 
 export interface EmployeeNavState {
   tab: EmployeeTab

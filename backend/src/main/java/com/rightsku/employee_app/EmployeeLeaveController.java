@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -44,6 +45,12 @@ public class EmployeeLeaveController {
     @ResponseStatus(HttpStatus.CREATED)
     public LeaveRequestResponse apply(@Valid @RequestBody LeaveApplyRequest request, @AuthenticationPrincipal Jwt jwt) {
         return leave.apply(userId(jwt), request);
+    }
+
+    /** Withdraws one of the employee's own pending requests. */
+    @PostMapping("/requests/{id}/cancel")
+    public LeaveRequestResponse cancel(@PathVariable long id, @AuthenticationPrincipal Jwt jwt) {
+        return leave.cancel(userId(jwt), id);
     }
 
     private static long userId(Jwt jwt) {
