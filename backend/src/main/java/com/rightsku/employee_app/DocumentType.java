@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 /**
  * The kinds of employee documents HR can upload, and the "period" each one
  * needs: a payslip belongs to a month (2026-09), a Form 16 to a financial
- * year (2025-26), a compensation (hike) letter to a calendar year (2026);
+ * year (2025-26), an appraisal (compensation) letter to a calendar year (2026);
  * the offer and experience letters have no period.
  */
 public enum DocumentType {
@@ -19,7 +19,7 @@ public enum DocumentType {
     EXPERIENCE_LETTER("Experience letter"),
     PAYSLIP("Payslip"),
     FORM_16("Form 16"),
-    COMPENSATION_LETTER("Compensation letter");
+    COMPENSATION_LETTER("Appraisal letter");
 
     private static final Pattern MONTH = Pattern.compile("^(\\d{4})-(\\d{2})$");
     private static final Pattern FINANCIAL_YEAR = Pattern.compile("^(\\d{4})-(\\d{2})$");
@@ -80,7 +80,7 @@ public enum DocumentType {
             case COMPENSATION_LETTER -> {
                 Matcher m = YEAR.matcher(value);
                 if (!m.matches()) {
-                    throw new IllegalArgumentException("Choose the year of the hike letter, like 2026.");
+                    throw new IllegalArgumentException("Choose the year of the appraisal letter, like 2026.");
                 }
                 int year = Integer.parseInt(m.group(1));
                 if (year < 2000 || year > 2100) {

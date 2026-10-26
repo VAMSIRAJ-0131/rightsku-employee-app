@@ -38,3 +38,29 @@ export function holidaysByMonth(holidays: HolidayRecord[]): { month: string; ite
   }
   return [...groups.entries()].map(([month, items]) => ({ month, items }))
 }
+
+export type HolidayFilter = 'upcoming' | 'past' | 'all'
+
+/** The holidays for a Holiday list filter: by date, oldest first (past ones newest first). */
+export function filterHolidays(holidays: HolidayRecord[], filter: HolidayFilter, today: string): HolidayRecord[] {
+  const sorted = [...holidays].sort((a, b) => a.date.localeCompare(b.date))
+  if (filter === 'upcoming') return sorted.filter((h) => h.date >= today)
+  if (filter === 'past') return sorted.filter((h) => h.date < today).reverse()
+  return sorted
+}
+
+/** Whole days from today to the date (0 = today, negative = past). */
+export function daysUntil(date: string, today: string): number {
+  return Math.round((new Date(`${date}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86_400_000)
+}
+
+/** "Today", "Tomorrow", "In 5 days", "In 3 weeks", "In 2 months", "Done". */
+export function countdownLabel(date: string, today: string): string {
+  const n = daysUntil(date, today)
+  if (n < 0) return 'Done'
+  if (n === 0) return 'Today'
+  if (n === 1) return 'Tomorrow'
+  if (n < 21) return `In ${n} days`
+  if (n < 60) return `In ${Math.round(n / 7)} weeks`
+  return `In ${Math.round(n / 30)} months`
+}

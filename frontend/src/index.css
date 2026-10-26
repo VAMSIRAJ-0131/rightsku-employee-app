@@ -453,6 +453,19 @@ html[data-theme='dark'] .hero-button svg {
   filter: drop-shadow(0 6px 10px rgb(37 84 204 / 0.12));
 }
 
+/* A leave type with no days left: the tile shakes left and right. */
+@keyframes tile-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-7px); }
+  30% { transform: translateX(6px); }
+  45% { transform: translateX(-5px); }
+  60% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+}
+.tile-shake {
+  animation: tile-shake 480ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
 /* The found payslip pops in. */
 @keyframes result-pop {
   from { transform: translateY(10px) scale(0.98); opacity: 0; }
@@ -617,21 +630,21 @@ html[data-theme='dark'] .lock-card {
    only surfaces, text and lines change. HR and sign-in never set it. */
 html[data-theme='dark'] {
   color-scheme: dark;
-  --color-mist-50: #141f33;
-  --color-mist-100: #1b2840;
-  --color-mist-200: #283a58;
-  --color-mist-300: #3b5276;
-  --color-mist-500: #8ea8cf;
+  --color-mist-50: #1a2640;
+  --color-mist-100: #23324f;
+  --color-mist-200: #2f4366;
+  --color-mist-300: #435c85;
+  --color-mist-500: #9cb5dc;
 
   --color-accent: #d2ab68;
   --color-accent-soft: #2d2617;
 
-  --color-ink: #e9eef6;
-  --color-ink-soft: #c3cddd;
-  --color-ink-muted: #8f9bb0;
-  --color-line: #233049;
-  --color-line-strong: #31415f;
-  --color-canvas: #0a1220;
+  --color-ink: #f1f5fb;
+  --color-ink-soft: #d2dbe9;
+  --color-ink-muted: #a6b3c9;
+  --color-line: #2a3a58;
+  --color-line-strong: #3b4e72;
+  --color-canvas: #0b1322;
 
   --color-ok: #6fc59d;
   --color-ok-soft: #14302a;
@@ -655,21 +668,31 @@ html[data-theme='dark'] {
   --color-rejected-strong: #d9605b;
   --color-not-submitted: #5d6a82;
 
-  --color-royal-700: #a9c1fb;
-  --color-royal-600: #8fb0fa;
-  --color-royal-50: #18284a;
-  --color-royal-100: #22355e;
-  --color-lavender-50: #221d3d;
+  --color-royal-700: #b8cdff;
+  --color-royal-600: #93b4ff;
+  --color-royal-50: #1c3062;
+  --color-royal-100: #2a4380;
+  --color-lavender-50: #29214d;
   --color-lavender-100: #2e2752;
   --color-lavender-600: #b9a6f2;
-  --color-gold-50: #2b2414;
+  --color-gold-50: #33290f;
   --color-gold-100: #3a301a;
   --color-gold-600: #e2b768;
 
-  --surface: #121c2e;
-  --surface-top: #17233a;
+  --surface: #16223b;
+  --surface-top: #1d2b48;
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
   --shadow-raised: 0 10px 28px -12px rgb(0 0 0 / 0.7);
+}
+
+html[data-theme='dark'] .bg-canvas {
+  background-image: radial-gradient(120% 340px at 50% -80px, rgb(52 99 216 / 0.22), rgb(52 99 216 / 0) 70%);
+  background-repeat: no-repeat;
+}
+
+/* Placeholder text and disabled fields stay readable on night surfaces. */
+html[data-theme='dark'] ::placeholder {
+  color: #7f8ca5;
 }
 
 /* White surfaces (cards, fields, the bottom bar) become night surfaces. White
@@ -678,7 +701,7 @@ html[data-theme='dark'] .bg-white {
   background-color: var(--surface);
 }
 html[data-theme='dark'] .bg-white\/95 {
-  background-color: rgb(18 28 46 / 0.95);
+  background-color: rgb(22 34 59 / 0.95);
 }
 html[data-theme='dark'] .bg-white\/70 {
   background-color: rgb(255 255 255 / 0.08);
@@ -727,16 +750,21 @@ html[data-theme='dark'] .card-surface {
   background-color: var(--surface);
   background-image: linear-gradient(180deg, var(--surface-top) 0%, var(--surface) 100%);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 0 0 1px rgb(150 175 220 / 0.06),
     0 1px 2px rgb(0 0 0 / 0.3),
     0 10px 24px -18px rgb(0 0 0 / 0.7);
 }
 html[data-theme='dark'] .tab-on {
-  background-image: linear-gradient(180deg, #2a3c5d 0%, #22324f 100%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.4);
+  background-image: linear-gradient(180deg, #3f6fe3 0%, #2a55c4 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), 0 2px 8px -2px rgb(37 84 204 / 0.6);
+  color: #fff;
+}
+html[data-theme='dark'] .tab-on * {
+  color: #fff;
 }
 html[data-theme='dark'] .tab-pill-on {
-  background-image: linear-gradient(180deg, #22355e 0%, #1b2b4d 100%);
+  background-image: linear-gradient(180deg, #2a4380 0%, #213669 100%);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
 }
 html[data-theme='dark'] .hero-card {
@@ -836,6 +864,9 @@ html[data-theme='dark'] select {
   }
   .fx-fall {
     display: none;
+  }
+  .tile-shake {
+    animation: none;
   }
   /* The stacking pages stand still, already stacked. */
   .doc-stack {

@@ -4,7 +4,7 @@ export type IconName =
   | 'home' | 'clock' | 'calendar' | 'wallet' | 'folder' | 'file' | 'bell' | 'user' | 'users'
   | 'list' | 'logout' | 'check' | 'x' | 'upload' | 'download' | 'shield' | 'chart'
   | 'chevronRight' | 'arrowLeft' | 'eye' | 'eyeOff' | 'search' | 'plus' | 'info' | 'alert'
-  | 'inbox' | 'mail' | 'phone' | 'pin' | 'briefcase' | 'lock' | 'receipt' | 'checkCircle' | 'idCard' | 'idBadge' | 'fingerprint' | 'trash' | 'backspace'
+  | 'inbox' | 'mail' | 'phone' | 'pin' | 'briefcase' | 'lock' | 'receipt' | 'checkCircle' | 'idCard' | 'idBadge' | 'fingerprint' | 'trash' | 'backspace' | 'sparkle'
 
 const circle = (cx: number, cy: number, r: number) =>
   `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`
@@ -55,6 +55,7 @@ const paths: Record<IconName, string[]> = {
   trash: ['M4.75 7h14.5', 'M9.75 4.25h4.5', 'M6.75 7l.85 12.1a1.25 1.25 0 0 0 1.25 1.15h6.3a1.25 1.25 0 0 0 1.25-1.15L17.25 7', 'M10 11v5.5', 'M14 11v5.5'],
   // Delete one digit: a key shape pointing left, with a cross.
   backspace: ['M9.25 5.75h9.5a1.5 1.5 0 0 1 1.5 1.5v9.5a1.5 1.5 0 0 1-1.5 1.5h-9.5L3.75 12z', 'M11.75 9.5l5 5', 'M16.75 9.5l-5 5'],
+  sparkle: ['M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z', 'M18.5 16l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z'],
   // A fingerprint: curved ridges around a centre line.
   fingerprint: [
     'M5 12.5V12a7 7 0 0 1 11.2-5.6',

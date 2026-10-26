@@ -13,7 +13,7 @@ const docs = [
 
 describe('document type filter', () => {
   it('offers every type except payslips, which have their own screen', () => {
-    expect(DOCUMENT_FILTERS).toEqual(['All', 'Offer Letter', 'Experience Letter', 'Form 16', 'Compensation Letter'])
+    expect(DOCUMENT_FILTERS).toEqual(['All', 'Offer Letter', 'Experience Letter', 'Form 16', 'Appraisal Letter'])
   })
 
   it('shows everything for All and only the chosen type otherwise', () => {
@@ -30,7 +30,7 @@ describe('document type filter', () => {
       { value: 'Offer Letter', label: 'Offer Letter', hint: '1' },
       { value: 'Experience Letter', label: 'Experience Letter', hint: '0' },
       { value: 'Form 16', label: 'Form 16', hint: '1' },
-      { value: 'Compensation Letter', label: 'Compensation Letter', hint: '0' },
+      { value: 'Appraisal Letter', label: 'Appraisal Letter', hint: '0' },
     ])
   })
 

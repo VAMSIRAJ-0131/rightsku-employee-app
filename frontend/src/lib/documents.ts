@@ -28,7 +28,7 @@ export const DOCUMENT_TYPES: { type: ApiDocumentType; label: DocType; period: 'n
   { type: 'EXPERIENCE_LETTER', label: 'Experience Letter', period: 'none', hint: 'Issued on exit' },
   { type: 'PAYSLIP', label: 'Payslip', period: 'month', hint: 'One per month' },
   { type: 'FORM_16', label: 'Form 16', period: 'year', hint: 'One per financial year' },
-  { type: 'COMPENSATION_LETTER', label: 'Compensation Letter', period: 'calendarYear', hint: 'Hike letter · one per year' },
+  { type: 'COMPENSATION_LETTER', label: 'Appraisal Letter', period: 'calendarYear', hint: 'One per year' },
 ]
 
 /** Same limits as the backend (DocumentFileRules). */
@@ -47,7 +47,7 @@ export function labelFor(type: ApiDocumentType): DocType {
 }
 
 /** Financial years for Form 16, newest first: "2026-27", "2025-26", ... */
-/** Calendar years for a hike letter, newest first: "2026", "2025", ... */
+/** Calendar years for an appraisal letter, newest first: "2026", "2025", ... */
 export function calendarYears(today = new Date(), count = 6): string[] {
   return Array.from({ length: count }, (_, i) => String(today.getFullYear() - i))
 }
@@ -87,7 +87,7 @@ export function validateUpload(values: UploadFormValues): UploadFormErrors {
   else {
     const kind = periodKind(values.type)
     if (kind === 'month' && !/^\d{4}-(0[1-9]|1[0-2])$/.test(values.period)) errors.period = 'Choose the payslip month.'
-    if (kind === 'calendarYear' && !/^\d{4}$/.test(values.period)) errors.period = 'Choose the year of the hike letter.'
+    if (kind === 'calendarYear' && !/^\d{4}$/.test(values.period)) errors.period = 'Choose the year of the appraisal letter.'
     if (kind === 'year') {
       const m = /^(\d{4})-(\d{2})$/.exec(values.period)
       if (!m || (Number(m[1]) + 1) % 100 !== Number(m[2])) errors.period = 'Choose the financial year.'
@@ -119,7 +119,7 @@ export function formatSize(bytes: number): string {
 export type DocumentFilter = 'All' | DocType
 
 /** The filter choices in display order. */
-export const DOCUMENT_FILTERS: DocumentFilter[] = ['All', 'Offer Letter', 'Experience Letter', 'Form 16', 'Compensation Letter']
+export const DOCUMENT_FILTERS: DocumentFilter[] = ['All', 'Offer Letter', 'Experience Letter', 'Form 16', 'Appraisal Letter']
 
 /** The documents shown for a filter (all of them for 'All'). */
 /** The Documents screen's list: payslips are left out (they have their own screen). */

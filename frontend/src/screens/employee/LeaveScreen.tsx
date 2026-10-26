@@ -9,12 +9,13 @@ import { Button, Card, Notice, Section, Segmented, Spinner, TopBar } from '../..
 import type { ApiError } from '../../lib/api'
 import LeaveTypeSelect from '../../components/LeaveTypeSelect'
 import {
-  applyForLeave, availableBalanceText, dayCountLabel, totalAvailable, countWorkingDays, days, hasLeaveErrors, validateLeave,
+  applyForLeave, dayCountLabel, totalAvailable, countWorkingDays, days, hasLeaveErrors, validateLeave,
   type LeaveBalanceRecord, type LeaveFormErrors, type LeaveFormValues,
 } from '../../lib/leave'
 import { getMyCalendar } from '../../lib/workCalendar'
 import CompOffRequestForm from './CompOffRequestForm'
 import SwipePager from '../../components/SwipePager'
+import DateField from '../../components/DateField'
 
 const EMPTY: LeaveFormValues = { leaveType: '', startDate: '', endDate: '', reason: '' }
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -45,8 +46,6 @@ export default function LeaveScreen({
   const [saving, setSaving] = useState(false)
   const [sent, setSent] = useState<string | null>(null)
   const chosenBalance = values.leaveType ? balances?.find((b) => b.leaveType === values.leaveType) : undefined
-  // Shown under the dropdown and updated as soon as the type changes; from the server's balances.
-  const selectedText = availableBalanceText(values.leaveType, balances)
   const chosenAvailable = chosenBalance ? days(chosenBalance.availableDays) : 0
 
   // Working days for the chosen dates, from the server's calendar (weekly offs and holidays excluded).
@@ -125,44 +124,42 @@ export default function LeaveScreen({
         <form noValidate onSubmit={submit}>
           <Card className="space-y-4 p-4">
             <TotalBalance balances={balances} error={balanceError} onRetry={onRetry} />
-            {balances && balances.length > 0 && !balanceError && (
-              <BalanceTiles balances={balances} selected={values.leaveType} onPick={(t) => set('leaveType', t)} />
-            )}
-            <div>
+            {balances && balances.length > 0 && !balanceError ? (
+              <div>
+                <p className="mb-2 text-[14px] font-semibold text-ink" id="leave-type-label">Leave type</p>
+                <BalanceTiles
+                  balances={balances}
+                  selected={values.leaveType}
+                  error={!!errors.leaveType}
+                  onPick={(t) => set('leaveType', t)}
+                />
+                {values.leaveType && chosenAvailable === 0 ? (
+                  <p className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-bad" role="alert">
+                    <Icon name="alert" className="h-4 w-4 shrink-0" />
+                    No {chosenBalance?.label ?? 'leave'} left. Choose another leave type.
+                  </p>
+                ) : errors.leaveType ? (
+                  <p className="mt-2 text-[12px] text-bad">{errors.leaveType}</p>
+                ) : null}
+                {chosenBalance && days(chosenBalance.pendingDays) > 0 && (
+                  <p className="tnum mt-1.5 text-[12px] text-ink-muted">
+                    {dayCountLabel(chosenBalance.pendingDays)} waiting for HR (not counted above)
+                  </p>
+                )}
+              </div>
+            ) : (
               <LeaveTypeSelect
                 id="leave-type"
                 value={values.leaveType}
                 onChange={(t) => set('leaveType', t)}
                 error={errors.leaveType}
-                aside={
-                  <span
-                    id="leave-type-balance"
-                    aria-live="polite"
-                    className={`tnum flex shrink-0 flex-col justify-center rounded-lg px-3 text-right leading-tight ring-1 ring-inset min-[380px]:flex-row min-[380px]:items-center min-[380px]:gap-1 ${
-                      selectedText === null
-                        ? 'bg-mist-50 text-ink-muted ring-mist-100'
-                        : chosenAvailable === 0
-                          ? 'bg-bad-soft text-bad ring-bad/20'
-                          : 'bg-mist-50 text-navy-900 ring-mist-100'
-                    }`}
-                  >
-                    <span className="text-[11px] font-medium min-[380px]:text-[13px]">Available:</span>
-                    <span className="whitespace-nowrap text-[14px] font-semibold">
-                      {selectedText === null ? '–' : dayCountLabel(chosenAvailable)}
-                    </span>
-                  </span>
-                }
               />
-              {chosenBalance && days(chosenBalance.pendingDays) > 0 && (
-                <p className="tnum mt-1.5 text-[12px] text-ink-muted">
-                  {dayCountLabel(chosenBalance.pendingDays)} waiting for HR (not counted in Available)
-                </p>
-              )}
-            </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
-              <DateField id="leave-start" label="First day" value={values.startDate} min={undefined} error={errors.startDate}
+              <DateField id="leave-start" label="First day" value={values.startDate} error={errors.startDate}
                 onChange={(v) => set('startDate', v)} />
-              <DateField id="leave-end" label="Last day" value={values.endDate} min={values.startDate || undefined} error={errors.endDate}
+              <DateField id="leave-end" label="Last day" value={values.endDate} error={errors.endDate}
+                canPick={(iso) => !values.startDate || iso >= values.startDate}
                 onChange={(v) => set('endDate', v)} />
             </div>
             <div className="min-h-5" aria-live="polite">
@@ -228,33 +225,53 @@ export default function LeaveScreen({
 
 /**
  * One tile per leave type with the days available now; tapping a tile chooses
- * that type in the form (the dropdown shows the same choice).
+ * that leave type. A type with no days left is outlined in red and shakes.
  */
 function BalanceTiles({
-  balances, selected, onPick,
+  balances, selected, error, onPick,
 }: {
   balances: LeaveBalanceRecord[]
   selected: LeaveFormValues['leaveType']
+  error: boolean
   onPick: (type: LeaveBalanceRecord['leaveType']) => void
 }) {
+  // Bumped on every tap of an empty type, so the shake plays again each time.
+  const [shake, setShake] = useState<{ type: string; n: number } | null>(null)
   return (
-    <div className="grid grid-cols-2 gap-2" role="group" aria-label="Choose a leave type">
+    <div className="grid grid-cols-2 gap-2.5" role="radiogroup" aria-labelledby="leave-type-label">
       {balances.map((b) => {
         const on = b.leaveType === selected
         const left = days(b.availableDays)
+        const empty = left === 0
+        const shaking = shake?.type === b.leaveType
         return (
           <button
-            key={b.leaveType}
+            key={shaking ? `${b.leaveType}-${shake.n}` : b.leaveType}
             type="button"
-            onClick={() => onPick(b.leaveType)}
-            aria-pressed={on}
-            className={`press rounded-xl px-3 py-2.5 text-left transition-[transform,box-shadow] duration-150 ${
-              on ? 'bg-royal-50 ring-2 ring-inset ring-royal-600' : 'bg-white ring-1 ring-inset ring-line-strong'
-            }`}
+            role="radio"
+            aria-checked={on}
+            onClick={() => {
+              onPick(b.leaveType)
+              if (empty) setShake((s) => ({ type: b.leaveType, n: (s?.n ?? 0) + 1 }))
+            }}
+            className={`press relative rounded-2xl px-3.5 py-3 text-left transition-[transform,box-shadow,background-color] duration-150 ${
+              on && empty
+                ? 'bg-bad-soft ring-2 ring-inset ring-bad'
+                : on
+                  ? 'bg-royal-50 ring-2 ring-inset ring-royal-600'
+                  : error
+                    ? 'bg-white ring-1 ring-inset ring-bad/40'
+                    : 'bg-white ring-1 ring-inset ring-line-strong'
+            } ${shaking ? 'tile-shake' : ''}`}
           >
-            <span className={`block text-[12px] font-medium ${on ? 'text-royal-700' : 'text-ink-muted'}`}>{b.label}</span>
-            <span className={`tnum block text-[18px] font-bold ${left === 0 ? 'text-ink-muted' : 'text-ink'}`}>
-              {left} <span className="text-[12px] font-medium text-ink-muted">{left === 1 ? 'day' : 'days'}</span>
+            {on && (
+              <span className={`absolute right-2.5 top-2.5 grid h-5 w-5 place-items-center rounded-full text-white ${empty ? 'bg-bad' : 'bg-royal-600'}`}>
+                <Icon name={empty ? 'x' : 'check'} className="h-3 w-3" />
+              </span>
+            )}
+            <span className={`block text-[13px] font-semibold ${on ? (empty ? 'text-bad' : 'text-royal-700') : 'text-ink-muted'}`}>{b.label}</span>
+            <span className={`tnum mt-0.5 block text-[20px] font-bold ${empty ? 'text-bad' : 'text-ink'}`}>
+              {left} <span className="text-[12px] font-medium text-ink-muted">{left === 1 ? 'day' : 'days'} left</span>
             </span>
           </button>
         )
@@ -302,29 +319,3 @@ function TotalBalance({
   )
 }
 
-function DateField({
-  id, label, value, min, error, onChange,
-}: {
-  id: string
-  label: string
-  value: string
-  min?: string
-  error?: string
-  onChange: (value: string) => void
-}) {
-  return (
-    <label className="block" htmlFor={id}>
-      <span className="text-[14px] font-semibold text-ink">{label}</span>
-      <input
-        id={id}
-        type="date"
-        value={value}
-        min={min}
-        onChange={(e) => onChange(e.target.value)}
-        aria-invalid={!!error}
-        className={`tnum mt-2 h-12 w-full rounded-2xl border bg-white px-2.5 text-[15px] text-ink outline-none focus:border-royal-600 focus:ring-4 focus:ring-royal-100 ${error ? 'border-bad/50' : 'border-line-strong'}`}
-      />
-      {error && <span className="mt-1.5 block text-[12px] text-bad">{error}</span>}
-    </label>
-  )
-}

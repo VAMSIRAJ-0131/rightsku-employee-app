@@ -22,8 +22,8 @@ export default function DateField({
   const [open, setOpen] = useState(false)
   return (
     <div>
-      <label className="text-[13px] font-medium text-ink-soft" htmlFor={id}>{label}</label>
-      <div className="mt-1.5 flex items-stretch gap-2">
+      <label className="text-[14px] font-semibold text-ink" htmlFor={id}>{label}</label>
+      <div className="mt-2 flex items-stretch gap-2">
         <button
           id={id}
           type="button"
@@ -31,19 +31,19 @@ export default function DateField({
           aria-haspopup="dialog"
           aria-invalid={!!error}
           aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
-          className={`tnum flex h-12 min-w-0 flex-1 items-center justify-between rounded-xl border bg-white px-4 text-left text-[15px] outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
+          className={`tnum flex h-12 min-w-0 flex-1 items-center justify-between gap-2 rounded-2xl border bg-white px-3.5 text-left text-[15px] outline-none focus:border-royal-600 focus:ring-4 focus:ring-royal-100 ${
             error ? 'border-bad/50' : 'border-line-strong'
           } ${value ? 'text-ink' : 'text-ink-muted/70'}`}
         >
-          <span className="truncate">{value ? formatDate(value) : 'Choose a date'}</span>
-          <Icon name="calendar" className="h-[18px] w-[18px] shrink-0 text-ink-muted" />
+          <span className="truncate">{value ? formatDate(value) : 'Select'}</span>
+          <Icon name="calendar" className="h-[18px] w-[18px] shrink-0 text-royal-600" />
         </button>
         {optional && value && (
           <button
             type="button"
             onClick={() => onChange('')}
             aria-label={`Clear ${label.toLowerCase()}`}
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-line-strong bg-white text-ink-muted hover:bg-mist-50"
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-line-strong bg-white text-ink-muted hover:bg-mist-50"
           >
             <Icon name="x" className="h-4 w-4" />
           </button>

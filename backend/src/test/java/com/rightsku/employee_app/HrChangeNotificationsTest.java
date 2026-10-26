@@ -20,7 +20,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Notifications for HR's changes (leave and Comp-Off balances, the holiday
- * calendar, Form 16 and hike letters), the daily reminder about requests
+ * calendar, Form 16 and appraisal letters), the daily reminder about requests
  * waiting 2 days or more, and the compensation (hike) letter's yearly period.
  */
 class HrChangeNotificationsTest {
@@ -109,21 +109,21 @@ class HrChangeNotificationsTest {
         EmployeeDocument hike = mock(EmployeeDocument.class);
         when(hike.getType()).thenReturn(DocumentType.COMPENSATION_LETTER);
         when(hike.getEmployee()).thenReturn(priya);
-        when(hike.getTitle()).thenReturn("Compensation letter - 2026");
+        when(hike.getTitle()).thenReturn("Appraisal letter - 2026");
 
         notifications.documentPublished(form16, false);
         notifications.documentPublished(hike, false);
 
-        assertThat(pushed).extracting(PushNotifier.Created::title).containsExactly("Form 16 published", "Compensation letter published");
+        assertThat(pushed).extracting(PushNotifier.Created::title).containsExactly("Form 16 published", "Appraisal letter published");
     }
 
     @Test
     void aHikeLetterBelongsToOneCalendarYear() {
         assertThat(DocumentType.parse("compensation_letter")).contains(DocumentType.COMPENSATION_LETTER);
         assertThat(DocumentType.COMPENSATION_LETTER.normalizePeriod("2026")).isEqualTo("2026");
-        assertThat(DocumentType.COMPENSATION_LETTER.defaultTitle("2026")).isEqualTo("Compensation letter - 2026");
+        assertThat(DocumentType.COMPENSATION_LETTER.defaultTitle("2026")).isEqualTo("Appraisal letter - 2026");
         assertThatThrownBy(() -> DocumentType.COMPENSATION_LETTER.normalizePeriod("2026-01"))
-                .hasMessageContaining("year of the hike letter");
+                .hasMessageContaining("year of the appraisal letter");
         assertThatThrownBy(() -> DocumentType.COMPENSATION_LETTER.normalizePeriod("")).isInstanceOf(IllegalArgumentException.class);
     }
 

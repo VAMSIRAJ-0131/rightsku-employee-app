@@ -5,7 +5,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icons'
 import Spotlight from '../../components/Spotlight'
-import { Button, Card, EmptyState, Notice, Section, Spinner, StatusBadge } from '../../components/ui'
+import { Button, Card, EmptyState, List, Notice, Section, Spinner, StatusBadge } from '../../components/ui'
+import { statusTile } from './WeeklyTimesheetHistory'
 import type { ApiError } from '../../lib/api'
 import { toIsoDate } from '../../lib/format'
 import { statusLabel } from '../../lib/approvalView'
@@ -105,39 +106,28 @@ export default function CompOffRequestForm({
                 </Button>
               </div>
             ) : (
-              <label className="block" htmlFor="compoff-day">
-                <span className="text-[13px] font-medium text-ink-soft">Day you worked</span>
-                <span className="relative mt-1.5 block">
-                  <select
-                    id="compoff-day"
-                    value={values.workDate}
-                    onChange={(e) => set('workDate', e.target.value)}
-                    disabled={!choices}
-                    aria-invalid={!!errors.workDate}
-                    className={`h-12 w-full appearance-none rounded-lg border bg-white pl-4 pr-10 text-[15px] outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${
-                      values.workDate ? 'text-ink' : 'text-ink-muted'
-                    } ${errors.workDate ? 'border-bad/50' : 'border-line-strong'}`}
-                  >
-                    <option value="" disabled>
-                      {choices === null ? 'Loading your days…' : choices.length ? 'Choose a day' : 'No weekly off or holiday to choose'}
-                    </option>
-                    {(choices ?? []).map((d) => (
-                      <option key={d.date} value={d.date}>
-                        {compOffDayLabel(d)}
-                      </option>
+              <div>
+                <p className="text-[14px] font-semibold text-ink" id="compoff-day-label">Day you worked</p>
+                <p className="mt-0.5 text-[12px] text-ink-muted">Your weekly offs and company holidays from the last 30 days.</p>
+                {choices === null ? (
+                  <p className="mt-3 flex items-center gap-2 text-[13px] text-ink-muted"><Spinner /> Loading your days…</p>
+                ) : choices.length === 0 ? (
+                  <p className="mt-3 rounded-2xl bg-mist-50 px-4 py-3 text-[13px] text-ink-muted ring-1 ring-inset ring-mist-100">
+                    No weekly off or holiday in the last 30 days that you haven’t already asked for.
+                  </p>
+                ) : (
+                  <div className="mt-3 grid grid-cols-3 gap-2" role="radiogroup" aria-labelledby="compoff-day-label">
+                    {choices.map((d) => (
+                      <DayTile key={d.date} day={d} on={values.workDate === d.date} onPick={() => set('workDate', d.date)} />
                     ))}
-                  </select>
-                  <Icon
-                    name="chevronRight"
-                    className="pointer-events-none absolute right-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 rotate-90 text-ink-muted"
-                  />
-                </span>
+                  </div>
+                )}
                 {errors.workDate && <span className="mt-1.5 block text-[12px] text-bad">{errors.workDate}</span>}
-              </label>
+              </div>
             )}
             <div>
-              <span className="text-[13px] font-medium text-ink-soft" id="compoff-days-label">How long you worked</span>
-              <div className="mt-1.5 grid grid-cols-2 gap-2" role="radiogroup" aria-labelledby="compoff-days-label">
+              <span className="text-[14px] font-semibold text-ink" id="compoff-days-label">How long you worked</span>
+              <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-labelledby="compoff-days-label">
                 {(['1', '0.5'] as const).map((d) => (
                   <button
                     key={d}
@@ -145,8 +135,8 @@ export default function CompOffRequestForm({
                     role="radio"
                     aria-checked={values.days === d}
                     onClick={() => set('days', d)}
-                    className={`press h-11 rounded-xl text-[14px] font-semibold transition-transform duration-150 ${
-                      values.days === d ? 'gloss-navy text-white' : 'gloss-light border border-line-strong text-ink'
+                    className={`press h-12 rounded-2xl text-[15px] font-semibold transition-transform duration-150 ${
+                      values.days === d ? 'save-cta text-white' : 'bg-white text-ink ring-1 ring-inset ring-line-strong'
                     }`}
                   >
                     {compOffDaysLabel(d)}
@@ -156,7 +146,7 @@ export default function CompOffRequestForm({
               {errors.days && <span className="mt-1.5 block text-[12px] text-bad">{errors.days}</span>}
             </div>
             <label className="block" htmlFor="compoff-reason">
-              <span className="text-[13px] font-medium text-ink-soft">What did you work on?</span>
+              <span className="text-[14px] font-semibold text-ink">What did you work on?</span>
               <textarea
                 id="compoff-reason"
                 rows={3}
@@ -164,7 +154,8 @@ export default function CompOffRequestForm({
                 value={values.reason}
                 onChange={(e) => set('reason', e.target.value)}
                 aria-invalid={!!errors.reason}
-                className={`mt-1.5 w-full rounded-xl border bg-white px-4 py-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${errors.reason ? 'border-bad/50' : 'border-line-strong'}`}
+                placeholder="For example: release support on Sunday"
+                className={`mt-2 w-full rounded-2xl border bg-white px-4 py-3 text-[16px] text-ink outline-none placeholder:text-ink-muted/60 focus:border-royal-600 focus:ring-4 focus:ring-royal-100 ${errors.reason ? 'border-bad/50' : 'border-line-strong'}`}
               />
               {errors.reason && <span className="mt-1.5 block text-[12px] text-bad">{errors.reason}</span>}
             </label>
@@ -179,9 +170,13 @@ export default function CompOffRequestForm({
               <Icon name="checkCircle" className="h-4 w-4" /> {sent}
             </p>
           )}
-          <Button type="submit" size="lg" disabled={saving || !choices} className="mt-3 w-full">
-            {saving ? <><Spinner /> Sending</> : 'Request Comp-Off'}
-          </Button>
+          <button
+            type="submit"
+            disabled={saving || !choices}
+            className="press save-cta mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl text-[16px] font-semibold text-white transition-transform duration-150 disabled:opacity-60"
+          >
+            {saving ? <><Spinner /> Sending</> : <><Icon name="check" className="h-5 w-5" /> Request Comp-Off</>}
+          </button>
         </form>
       </Section>
 
@@ -195,27 +190,70 @@ export default function CompOffRequestForm({
         ) : mine.length === 0 ? (
           <EmptyState icon="list" title="No Comp-Off requests yet" message="Requests you send appear here with HR’s decision." />
         ) : (
-          <div className="space-y-2.5">
-            {mine.map((r) => (
-              <Spotlight key={r.id} on={String(r.id) === highlightId}>
-              <Card className="p-3.5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[15px] font-semibold leading-tight text-ink">
-                      {compOffDayLabel({ date: r.workDate, kind: r.dayKind === 'HOLIDAY' ? 'HOLIDAY' : 'WEEKLY_OFF', holidayName: r.holidayName })}
-                    </p>
-                    <p className="mt-0.5 text-[13px] text-ink-muted">{compOffDaysLabel(r.days)}</p>
+          <List>
+            {mine.map((r) => {
+              const status = statusLabel(r.status)
+              return (
+                <Spotlight key={r.id} on={String(r.id) === highlightId}>
+                  <div className="flex gap-3.5 px-4 py-3.5">
+                    <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${statusTile(status)}`}>
+                      <Icon name="calendar" className="h-[22px] w-[22px]" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[15px] font-semibold leading-snug text-ink">
+                        {compOffDayLabel({ date: r.workDate, kind: r.dayKind === 'HOLIDAY' ? 'HOLIDAY' : 'WEEKLY_OFF', holidayName: r.holidayName })}
+                      </p>
+                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <StatusBadge status={status} />
+                        <span className="text-[13px] text-ink-muted">{compOffDaysLabel(r.days)}</span>
+                      </span>
+                      <p className="mt-1 text-[13px] leading-snug text-ink-soft">{r.reason}</p>
+                      {r.reviewNote && (
+                        <div className="mt-2 rounded-md border-l-2 border-line-strong bg-mist-50 px-3 py-2 text-[12px] leading-relaxed text-ink-soft">
+                          <span className="font-semibold">HR note:</span> {r.reviewNote}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <StatusBadge status={statusLabel(r.status)} />
-                </div>
-                <p className="mt-1.5 text-[13px] leading-snug text-ink-soft">{r.reason}</p>
-                {r.reviewNote && <p className="mt-1.5 text-[12px] text-ink-muted">HR note: {r.reviewNote}</p>}
-              </Card>
-              </Spotlight>
-            ))}
-          </div>
+                </Spotlight>
+              )
+            })}
+          </List>
         )}
       </Section>
     </>
+  )
+}
+
+/** One weekly off or holiday to choose: weekday, date, month and why it was off. */
+function DayTile({ day, on, onPick }: { day: CalendarDay; on: boolean; onPick: () => void }) {
+  const d = new Date(`${day.date}T00:00:00`)
+  const holiday = day.kind === 'HOLIDAY'
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      aria-label={compOffDayLabel(day)}
+      onClick={onPick}
+      className={`press flex flex-col items-center rounded-2xl px-1.5 pb-2 pt-2.5 text-center transition-[transform,background-color] duration-150 ${
+        on ? 'save-cta text-white' : 'bg-white text-ink ring-1 ring-inset ring-line-strong'
+      }`}
+    >
+      <span className={`text-[11px] font-semibold uppercase tracking-wide ${on ? 'text-white/80' : 'text-ink-muted'}`}>
+        {d.toLocaleDateString('en-IN', { weekday: 'short' })}
+      </span>
+      <span className="tnum text-[22px] font-bold leading-tight">{d.getDate()}</span>
+      <span className={`text-[12px] font-medium ${on ? 'text-white/85' : 'text-ink-soft'}`}>
+        {d.toLocaleDateString('en-IN', { month: 'short' })}
+      </span>
+      <span
+        className={`mt-1.5 w-full truncate rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold ${
+          on ? 'bg-white/20 text-white' : holiday ? 'bg-gold-50 text-gold-600' : 'bg-mist-50 text-ink-muted'
+        }`}
+      >
+        {holiday ? day.holidayName ?? 'Holiday' : 'Weekly off'}
+      </span>
+    </button>
   )
 }

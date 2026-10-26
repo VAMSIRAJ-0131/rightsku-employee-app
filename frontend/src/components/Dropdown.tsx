@@ -173,7 +173,7 @@ export default function Dropdown<T extends string | number>({
                       disabled={o.disabled}
                       onClick={() => choose(o)}
                       className={`press flex min-h-12 w-full items-center gap-3 rounded-xl px-3.5 text-left text-[15px] transition-[background-color,transform] duration-150 focus-visible:outline-2 focus-visible:outline-offset-[-2px] disabled:cursor-not-allowed disabled:opacity-40 ${
-                        on ? 'tab-on font-semibold text-navy-900' : 'text-ink hover:bg-mist-50'
+                        on ? 'bg-royal-50 font-semibold text-royal-700' : 'text-ink hover:bg-mist-50'
                       }`}
                     >
                       <span className="min-w-0 flex-1 truncate">{o.label}</span>

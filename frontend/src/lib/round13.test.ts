@@ -12,8 +12,8 @@ const doc = (id: string, type: EmployeeDocument['type'], period: string | null =
 const today = new Date('2026-10-26T10:00:00')
 
 describe('employee documents: type and year', () => {
-  it('offers offer letter, Form 16 and hike letter, but not the experience letter', () => {
-    expect(EMPLOYEE_DOC_TYPES.map((t) => t.type)).toEqual(['Offer Letter', 'Form 16', 'Compensation Letter'])
+  it('offers offer letter, Form 16 and appraisal letter, but not the experience letter', () => {
+    expect(EMPLOYEE_DOC_TYPES.map((t) => t.type)).toEqual(['Offer Letter', 'Form 16', 'Appraisal Letter'])
     expect(isEmployeeDocType('Experience Letter')).toBe(false)
     expect(isEmployeeDocType('Payslip')).toBe(false)
     expect(isEmployeeDocType('Form 16')).toBe(true)
@@ -27,10 +27,10 @@ describe('employee documents: type and year', () => {
     expect(findDocument(docs, 'Offer Letter', '')?.id).toBe('c')
   })
 
-  it('fetches the hike letter of the chosen calendar year', () => {
-    const docs = [doc('h25', 'Compensation Letter', '2025'), doc('h26', 'Compensation Letter', '2026')]
-    expect(findDocument(docs, 'Compensation Letter', '2025')?.id).toBe('h25')
-    expect(findDocument(docs, 'Compensation Letter', '2024')).toBeNull()
+  it('fetches the appraisal letter of the chosen calendar year', () => {
+    const docs = [doc('h25', 'Appraisal Letter', '2025'), doc('h26', 'Appraisal Letter', '2026')]
+    expect(findDocument(docs, 'Appraisal Letter', '2025')?.id).toBe('h25')
+    expect(findDocument(docs, 'Appraisal Letter', '2024')).toBeNull()
   })
 
   it('lists recent years plus any issued year, newest first; none for the offer letter', () => {
@@ -38,20 +38,20 @@ describe('employee documents: type and year', () => {
     expect(fy[0]).toBe('2026-27')
     expect(fy).toContain('2025-26')
     expect(fy[fy.length - 1]).toBe('2015-16')
-    expect(yearChoices([], 'Compensation Letter', today)[0]).toBe('2026')
+    expect(yearChoices([], 'Appraisal Letter', today)[0]).toBe('2026')
     expect(yearChoices([], 'Offer Letter', today)).toEqual([])
   })
 
   it('starts on the newest issued year, else last financial year / this year', () => {
     expect(defaultYear([doc('a', 'Form 16', '2023-24'), doc('b', 'Form 16', '2024-25')], 'Form 16', today)).toBe('2024-25')
     expect(defaultYear([], 'Form 16', today)).toBe('2025-26')
-    expect(defaultYear([], 'Compensation Letter', today)).toBe('2026')
+    expect(defaultYear([], 'Appraisal Letter', today)).toBe('2026')
     expect(defaultYear([], 'Offer Letter', today)).toBe('')
   })
 
   it('names the fetched document', () => {
     expect(documentLabel('Form 16', '2025-26')).toBe('Form 16 · FY 2025-26')
-    expect(documentLabel('Compensation Letter', '2026')).toBe('Compensation / Hike letter · 2026')
+    expect(documentLabel('Appraisal Letter', '2026')).toBe('Appraisal letter · 2026')
     expect(documentLabel('Offer Letter', '')).toBe('Offer letter')
   })
 })

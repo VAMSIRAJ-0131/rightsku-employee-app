@@ -77,7 +77,7 @@ public class NotificationService {
         String title = switch (document.getType()) {
             case PAYSLIP -> replaced ? "Payslip updated" : "Payslip published";
             case FORM_16 -> replaced ? "Form 16 updated" : "Form 16 published";
-            case COMPENSATION_LETTER -> replaced ? "Compensation letter updated" : "Compensation letter published";
+            case COMPENSATION_LETTER -> replaced ? "Appraisal letter updated" : "Appraisal letter published";
             default -> replaced ? "Document updated" : "New document";
         };
         send(document.getEmployee(),

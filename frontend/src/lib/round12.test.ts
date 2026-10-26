@@ -207,7 +207,7 @@ describe('HR change notifications and hike letters', () => {
     expect(calendarYears(new Date('2026-10-26'), 3)).toEqual(['2026', '2025', '2024'])
     expect(periodKind('COMPENSATION_LETTER')).toBe('calendarYear')
     const base = { employeeId: '4', title: '', file: null }
-    expect(validateUpload({ ...base, type: 'COMPENSATION_LETTER', period: '2026-01' } as never).period).toBe('Choose the year of the hike letter.')
+    expect(validateUpload({ ...base, type: 'COMPENSATION_LETTER', period: '2026-01' } as never).period).toBe('Choose the year of the appraisal letter.')
     expect(validateUpload({ ...base, type: 'COMPENSATION_LETTER', period: '2026' } as never).period).toBeUndefined()
   })
 })

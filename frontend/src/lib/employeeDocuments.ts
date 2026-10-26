@@ -5,12 +5,12 @@
 import type { DocType, EmployeeDocument } from '../data/types'
 import { calendarYears, financialYears } from './documents'
 
-export type EmployeeDocType = Extract<DocType, 'Offer Letter' | 'Form 16' | 'Compensation Letter'>
+export type EmployeeDocType = Extract<DocType, 'Offer Letter' | 'Form 16' | 'Appraisal Letter'>
 
 export const EMPLOYEE_DOC_TYPES: { type: EmployeeDocType; label: string; year: 'none' | 'financial' | 'calendar' }[] = [
   { type: 'Offer Letter', label: 'Offer letter', year: 'none' },
   { type: 'Form 16', label: 'Form 16', year: 'financial' },
-  { type: 'Compensation Letter', label: 'Compensation / Hike letter', year: 'calendar' },
+  { type: 'Appraisal Letter', label: 'Appraisal letter', year: 'calendar' },
 ]
 
 export function docTypeInfo(type: EmployeeDocType) {
@@ -25,7 +25,7 @@ export function isEmployeeDocType(type: string): type is EmployeeDocType {
 /**
  * The years to choose from for a yearly document, newest first: the usual
  * recent years plus any year HR has issued one for. "2025-26" for Form 16,
- * "2026" for a hike letter; empty for the offer letter.
+ * "2026" for an appraisal letter; empty for the offer letter.
  */
 export function yearChoices(docs: EmployeeDocument[], type: EmployeeDocType, today = new Date()): string[] {
   const kind = docTypeInfo(type).year
@@ -41,7 +41,7 @@ export function defaultYear(docs: EmployeeDocument[], type: EmployeeDocType, tod
   if (kind === 'none') return ''
   const issued = docs.filter((d) => d.type === type && d.period).map((d) => d.period as string).sort()
   if (issued.length) return issued[issued.length - 1]
-  // Form 16 comes after the financial year ends: last year's. A hike letter: this year.
+  // Form 16 comes after the financial year ends: last year's. An appraisal letter: this year.
   return kind === 'financial' ? financialYears(today)[1] : calendarYears(today)[0]
 }
 
@@ -51,7 +51,7 @@ export function findDocument(docs: EmployeeDocument[], type: EmployeeDocType, ye
   return docs.find((d) => d.type === type && (kind === 'none' || d.period === year)) ?? null
 }
 
-/** "Form 16 · FY 2025-26", "Compensation / Hike letter · 2026", "Offer letter". */
+/** "Form 16 · FY 2025-26", "Appraisal letter · 2026", "Offer letter". */
 export function documentLabel(type: EmployeeDocType, year: string): string {
   const info = docTypeInfo(type)
   if (info.year === 'none') return info.label

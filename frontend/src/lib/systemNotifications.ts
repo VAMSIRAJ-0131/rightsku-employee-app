@@ -60,7 +60,7 @@ export function documentKind(title: string): string {
   if (t.includes('offer')) return 'Offer letter'
   if (t.includes('experience')) return 'Experience letter'
   if (t.includes('form 16') || t.includes('form16')) return 'Form 16'
-  if (t.includes('compensation') || t.includes('hike')) return 'Compensation letter'
+  if (t.includes('appraisal') || t.includes('compensation') || t.includes('hike')) return 'Appraisal letter'
   if (t.startsWith('salary summary')) return 'Salary summary'
   return 'Document'
 }

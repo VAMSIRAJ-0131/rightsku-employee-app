@@ -77,7 +77,7 @@ export default function DocumentsScreen({
           <p className="mt-0.5 text-[13px] text-ink-muted">
             Choose the document{yearly ? ' and year' : ''}, then tap Get document.
           </p>
-          <div className={`mt-4 grid gap-3 ${yearly ? 'grid-cols-[1.35fr_1fr]' : 'grid-cols-1'}`}>
+          <div className="mt-4 grid grid-cols-1 gap-3">
             <Dropdown
               label="Document type"
               value={type}

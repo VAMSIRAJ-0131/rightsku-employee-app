@@ -9,7 +9,7 @@
 
 export type Role = 'employee' | 'hr'
 export type Status = 'Pending' | 'Approved' | 'Rejected'
-export type DocType = 'Offer Letter' | 'Experience Letter' | 'Payslip' | 'Form 16' | 'Compensation Letter'
+export type DocType = 'Offer Letter' | 'Experience Letter' | 'Payslip' | 'Form 16' | 'Appraisal Letter'
 
 export interface Employee {
   id: string

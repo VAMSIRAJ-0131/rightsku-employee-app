@@ -12,6 +12,9 @@ import { canOpenWeek, monthWeeks, type MonthWeek } from '../../lib/timesheetHist
 import { upcomingHolidays, type HolidayRecord } from '../../lib/workCalendar'
 import { dayPart, festivalTheme, type DayPart } from '../../lib/festivals'
 import FestivalArt, { festivalTint } from '../../components/FestivalArt'
+import FestiveSky from '../../components/FestiveSky'
+import { activeFestival } from '../../lib/festiveEffects'
+import { daysUntil } from '../../lib/holidayMonth'
 
 type DocFilter = 'All' | DocType
 
@@ -56,6 +59,9 @@ export default function HomeScreen({
   const payslipRise = useRiseOnScrollDown<HTMLButtonElement>()
   // The next holiday's festive drawing; after it passes, the one after it takes over.
   const holidayTheme = festivalTheme(nextHoliday?.name ?? '')
+  // From two days before a festival until its end: an animation over Home.
+  const festive = activeFestival(holidays, today)
+  const festiveDays = festive ? daysUntil(festive.holiday.date, today) : 0
 
   const approval: ApprovalState =
     rejectedTs > 0
@@ -68,6 +74,7 @@ export default function HomeScreen({
 
   return (
     <>
+      {festive && <FestiveSky key={festive.effect} effect={festive.effect} />}
       <AppHeader
         start={
           <>
@@ -84,6 +91,12 @@ export default function HomeScreen({
         <h1 className="relative pr-[76px] text-[28px] font-bold leading-tight tracking-tight text-ink [overflow-wrap:anywhere]">
           {user.displayName ?? user.name}
         </h1>
+        {festive && (
+          <p className="relative mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-gold-50 px-3 py-1 text-[13px] font-semibold text-gold-600 ring-1 ring-inset ring-gold-100">
+            <Icon name="sparkle" className="h-3.5 w-3.5" />
+            {festiveDays === 0 ? `Happy ${festive.holiday.name}!` : `${festive.holiday.name} ${festiveDays === 1 ? 'is tomorrow' : `in ${festiveDays} days`}`}
+          </p>
+        )}
       </div>
 
       <section className="px-5 pt-4">
@@ -183,7 +196,7 @@ export default function HomeScreen({
 const KEY_DOCS: { type: DocType; label: string; pending: string }[] = [
   { type: 'Offer Letter', label: 'Offer letter', pending: 'Not uploaded yet' },
   { type: 'Form 16', label: 'Form 16', pending: 'Issued after each financial year' },
-  { type: 'Compensation Letter', label: 'Compensation / Hike letter', pending: 'Issued with your yearly hike' },
+  { type: 'Appraisal Letter', label: 'Appraisal letter', pending: 'Issued with your yearly appraisal' },
 ]
 
 /** "Payslip - August 2026" → "August" (the title HR's upload gives each payslip). */

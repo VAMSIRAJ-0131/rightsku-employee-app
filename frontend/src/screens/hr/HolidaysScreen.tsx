@@ -2,6 +2,7 @@
 // employee's timesheet (the server refuses entries for them).
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icons'
+import DateField from '../../components/DateField'
 import { Button, Card, EmptyState, List, ListRow, Notice, Section, Spinner, TopBar } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import { formatDate } from '../../lib/format'
@@ -236,17 +237,8 @@ function HolidayForm({
         )}
         <Section>
           <Card className="space-y-4 p-4">
-            <label className="block" htmlFor="hol-date">
-              <span className="text-[13px] font-medium text-ink-soft">Date</span>
-              <input
-                id="hol-date"
-                type="date"
-                value={values.date}
-                onChange={(e) => setValues((v) => ({ ...v, date: e.target.value }))}
-                className={input(!!errors.date)}
-              />
-              {errors.date && <span className="mt-1.5 block text-[12px] text-bad">{errors.date}</span>}
-            </label>
+            <DateField id="hol-date" label="Date" value={values.date} error={errors.date}
+              onChange={(date) => setValues((v) => ({ ...v, date }))} />
             <label className="block" htmlFor="hol-name">
               <span className="text-[13px] font-medium text-ink-soft">Holiday name</span>
               <input

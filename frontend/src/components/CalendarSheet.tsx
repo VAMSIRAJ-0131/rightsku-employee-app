@@ -41,9 +41,9 @@ export default function CalendarSheet({
     return () => window.removeEventListener('keydown', onKey)
   }, [onCancel])
 
-  const arrow = 'flex h-10 w-10 items-center justify-center rounded-full text-navy-700 hover:bg-mist-50'
+  const arrow = 'flex h-10 w-10 items-center justify-center rounded-full text-royal-600 hover:bg-royal-50'
   return (
-    <div className="backdrop-enter fixed inset-0 z-50 grid place-items-end bg-navy-950/45 p-4 backdrop-blur-[2px] sm:place-items-center">
+    <div className="backdrop-enter fixed inset-0 z-50 grid place-items-end bg-navy-950/45 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur-[2px] sm:place-items-center">
       <div role="dialog" aria-modal="true" aria-labelledby="calendar-title" className="sheet sheet-enter w-full max-w-sm p-5">
         <p id="calendar-title" className="text-[16px] font-semibold text-ink">{title}</p>
         {hint && <p className="mt-0.5 text-[13px] text-ink-muted">{hint}</p>}
@@ -101,7 +101,7 @@ export default function CalendarSheet({
                       on
                         ? 'press gloss-navy font-semibold text-white'
                         : allowed
-                          ? `press font-medium text-ink hover:bg-mist-50 ${isToday ? 'ring-1 ring-inset ring-[#1E88D2]' : ''}`
+                          ? `press font-medium text-ink hover:bg-mist-50 ${isToday ? 'font-bold text-royal-700 ring-1 ring-inset ring-royal-600' : ''}`
                           : 'text-ink-muted'
                     }`}
                   >
@@ -117,7 +117,7 @@ export default function CalendarSheet({
           <button
             type="button"
             onClick={onCancel}
-            className="h-12 rounded-lg bg-white text-[15px] font-semibold text-navy-900 ring-1 ring-inset ring-line-strong hover:bg-mist-50"
+            className="h-12 rounded-xl bg-white text-[15px] font-semibold text-ink ring-1 ring-inset ring-line-strong hover:bg-mist-50"
           >
             Cancel
           </button>

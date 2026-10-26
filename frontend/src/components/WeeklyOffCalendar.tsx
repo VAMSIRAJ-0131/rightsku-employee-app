@@ -29,7 +29,7 @@ export default function WeeklyOffCalendar({
           type="button"
           onClick={() => setMonth((m) => shiftMonth(m, -1))}
           aria-label="Previous month"
-          className="grid h-10 w-10 place-items-center rounded-full text-navy-700 hover:bg-mist-50"
+          className="grid h-10 w-10 place-items-center rounded-full text-royal-600 hover:bg-royal-50"
         >
           <Icon name="chevronRight" className="h-5 w-5 rotate-180" />
         </button>
@@ -38,7 +38,7 @@ export default function WeeklyOffCalendar({
           type="button"
           onClick={() => setMonth((m) => shiftMonth(m, 1))}
           aria-label="Next month"
-          className="grid h-10 w-10 place-items-center rounded-full text-navy-700 hover:bg-mist-50"
+          className="grid h-10 w-10 place-items-center rounded-full text-royal-600 hover:bg-royal-50"
         >
           <Icon name="chevronRight" className="h-5 w-5" />
         </button>
@@ -84,8 +84,8 @@ export default function WeeklyOffCalendar({
                   }${before ? ', before this schedule starts' : ''}`}
                   onClick={() => onToggle(cell.weekday)}
                   className={`tnum flex h-10 flex-col items-center justify-center rounded-lg text-[13px] leading-none transition-colors ${
-                    off ? 'bg-navy-700/10 font-semibold text-navy-800 ring-1 ring-inset ring-navy-700/25' : 'text-ink hover:bg-mist-50'
-                  } ${before ? 'opacity-40' : ''} ${cell.iso === effectiveFrom ? 'outline outline-2 outline-offset-[-2px] outline-[#1E88D2]' : ''}`}
+                    off ? 'bg-royal-50 font-semibold text-royal-700 ring-1 ring-inset ring-royal-100' : 'text-ink hover:bg-mist-50'
+                  } ${before ? 'opacity-40' : ''} ${cell.iso === effectiveFrom ? 'outline outline-2 outline-offset-[-2px] outline-royal-600' : ''}`}
                 >
                   {day}
                   {off && <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wide">Off</span>}
@@ -96,8 +96,8 @@ export default function WeeklyOffCalendar({
         ))}
       </div>
       <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-muted">
-        <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-navy-700/20 ring-1 ring-inset ring-navy-700/25" /> Weekly off</span>
-        <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm outline outline-2 outline-[#1E88D2]" /> Applies from</span>
+        <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-royal-50 ring-1 ring-inset ring-royal-100" /> Weekly off</span>
+        <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm outline outline-2 outline-royal-600" /> Applies from</span>
         <span>Tap a weekday or any date to choose.</span>
       </p>
     </div>

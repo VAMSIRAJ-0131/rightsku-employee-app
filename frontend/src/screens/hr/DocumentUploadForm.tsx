@@ -3,6 +3,8 @@
 // the content, size, duplicates, HR permission).
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Icon } from '../../components/Icons'
+import Dropdown from '../../components/Dropdown'
+import { MONTH_NAMES } from '../../lib/payslips'
 import { Avatar, Button, Card, List, ListRow, Notice, SearchField, Section, Spinner, Tag, TopBar } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import {
@@ -196,48 +198,45 @@ export default function DocumentUploadForm(props: Props) {
               </fieldset>
 
               {kind === 'month' && (
-                <Labeled label="Payslip month" htmlFor="doc-period" error={errors.period}>
-                  <input
-                    id="doc-period"
-                    type="month"
-                    value={values.period}
-                    max={toIsoDate(new Date()).slice(0, 7)}
-                    onChange={(e) => setValues((v) => ({ ...v, period: e.target.value }))}
-                    className={inputClass(!!errors.period)}
-                  />
-                </Labeled>
+                <div id="doc-period">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Dropdown
+                      label="Payslip month"
+                      value={Number(values.period.slice(5, 7)) || 1}
+                      onChange={(m) => setValues((v) => ({ ...v, period: `${v.period.slice(0, 4)}-${String(m).padStart(2, '0')}` }))}
+                      options={uploadMonths(Number(values.period.slice(0, 4))).map((m) => ({ value: m, label: MONTH_NAMES[m - 1] }))}
+                    />
+                    <Dropdown
+                      label="Year"
+                      value={Number(values.period.slice(0, 4)) || new Date().getFullYear()}
+                      onChange={(y) => setValues((v) => ({ ...v, period: monthInYear(y, Number(v.period.slice(5, 7)) || 1) }))}
+                      options={calendarYears().map((y) => ({ value: Number(y), label: y }))}
+                    />
+                  </div>
+                  {errors.period && <FieldError>{errors.period}</FieldError>}
+                </div>
               )}
               {kind === 'year' && (
-                <Labeled label="Financial year" htmlFor="doc-period" error={errors.period}>
-                  <select
-                    id="doc-period"
+                <div id="doc-period">
+                  <Dropdown
+                    label="Financial year"
                     value={values.period}
-                    onChange={(e) => setValues((v) => ({ ...v, period: e.target.value }))}
-                    className={inputClass(!!errors.period)}
-                  >
-                    {financialYears().map((fy) => (
-                      <option key={fy} value={fy}>
-                        FY {fy}
-                      </option>
-                    ))}
-                  </select>
-                </Labeled>
+                    onChange={(period) => setValues((v) => ({ ...v, period }))}
+                    options={financialYears().map((fy) => ({ value: fy, label: `FY ${fy}` }))}
+                  />
+                  {errors.period && <FieldError>{errors.period}</FieldError>}
+                </div>
               )}
               {kind === 'calendarYear' && (
-                <Labeled label="Year of the hike" htmlFor="doc-period" error={errors.period}>
-                  <select
-                    id="doc-period"
+                <div id="doc-period">
+                  <Dropdown
+                    label="Year of the appraisal"
                     value={values.period}
-                    onChange={(e) => setValues((v) => ({ ...v, period: e.target.value }))}
-                    className={inputClass(!!errors.period)}
-                  >
-                    {calendarYears().map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                </Labeled>
+                    onChange={(period) => setValues((v) => ({ ...v, period }))}
+                    options={calendarYears().map((y) => ({ value: y, label: y }))}
+                  />
+                  {errors.period && <FieldError>{errors.period}</FieldError>}
+                </div>
               )}
             </Card>
           </Section>
@@ -398,4 +397,18 @@ function FieldError({ children }: { children: ReactNode }) {
       {children}
     </span>
   )
+}
+
+/** Months that can be chosen for a payslip in a year: none after this month. */
+function uploadMonths(year: number): number[] {
+  const now = new Date()
+  const last = year === now.getFullYear() ? now.getMonth() + 1 : 12
+  return Array.from({ length: last }, (_, i) => i + 1)
+}
+
+/** "2026-03"; a month after this month (when the year changes) becomes this month. */
+function monthInYear(year: number, month: number): string {
+  const allowed = uploadMonths(year)
+  const m = Math.min(month, allowed[allowed.length - 1])
+  return `${year}-${String(m).padStart(2, '0')}`
 }
