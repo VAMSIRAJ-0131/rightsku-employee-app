@@ -10,17 +10,20 @@ import java.util.regex.Pattern;
 /**
  * The kinds of employee documents HR can upload, and the "period" each one
  * needs: a payslip belongs to a month (2026-09), a Form 16 to a financial
- * year (2025-26), letters have no period.
+ * year (2025-26), a compensation (hike) letter to a calendar year (2026);
+ * the offer and experience letters have no period.
  */
 public enum DocumentType {
 
     OFFER_LETTER("Offer letter"),
     EXPERIENCE_LETTER("Experience letter"),
     PAYSLIP("Payslip"),
-    FORM_16("Form 16");
+    FORM_16("Form 16"),
+    COMPENSATION_LETTER("Compensation letter");
 
     private static final Pattern MONTH = Pattern.compile("^(\\d{4})-(\\d{2})$");
     private static final Pattern FINANCIAL_YEAR = Pattern.compile("^(\\d{4})-(\\d{2})$");
+    private static final Pattern YEAR = Pattern.compile("^(\\d{4})$");
 
     private final String label;
 
@@ -74,6 +77,17 @@ public enum DocumentType {
                 }
                 return value;
             }
+            case COMPENSATION_LETTER -> {
+                Matcher m = YEAR.matcher(value);
+                if (!m.matches()) {
+                    throw new IllegalArgumentException("Choose the year of the hike letter, like 2026.");
+                }
+                int year = Integer.parseInt(m.group(1));
+                if (year < 2000 || year > 2100) {
+                    throw new IllegalArgumentException("Choose a valid year.");
+                }
+                return value;
+            }
             default -> {
                 if (!value.isEmpty()) {
                     throw new IllegalArgumentException(label + "s don't have a month or year.");
@@ -91,6 +105,7 @@ public enum DocumentType {
                 yield label + " - " + month.getDisplayName(TextStyle.FULL, Locale.ENGLISH) + " " + period.substring(0, 4);
             }
             case FORM_16 -> label + " - FY " + period;
+            case COMPENSATION_LETTER -> label + " - " + period;
             default -> label;
         };
     }

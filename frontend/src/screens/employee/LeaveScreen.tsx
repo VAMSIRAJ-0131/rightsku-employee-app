@@ -14,6 +14,7 @@ import {
 } from '../../lib/leave'
 import { getMyCalendar } from '../../lib/workCalendar'
 import CompOffRequestForm from './CompOffRequestForm'
+import SwipePager from '../../components/SwipePager'
 
 const EMPTY: LeaveFormValues = { leaveType: '', startDate: '', endDate: '', reason: '' }
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -112,14 +113,21 @@ export default function LeaveScreen({
           onChange={setTab}
         />
       </Section>
-      {tab === 'compoff' ? (
-        <CompOffRequestForm token={token} onSubmitted={onSubmitted} onError={onError} highlightId={highlightCompOffId} />
-      ) : (
+      {/* Swipe left for Request Comp-Off, right for Apply for leave. */}
+      <SwipePager
+        label="Leave pages"
+        value={tab}
+        onChange={setTab}
+        pages={[
+          { id: 'leave', content: (
       <>
       <Section title="Apply for leave">
         <form noValidate onSubmit={submit}>
           <Card className="space-y-4 p-4">
             <TotalBalance balances={balances} error={balanceError} onRetry={onRetry} />
+            {balances && balances.length > 0 && !balanceError && (
+              <BalanceTiles balances={balances} selected={values.leaveType} onPick={(t) => set('leaveType', t)} />
+            )}
             <div>
               <LeaveTypeSelect
                 id="leave-type"
@@ -157,15 +165,21 @@ export default function LeaveScreen({
               <DateField id="leave-end" label="Last day" value={values.endDate} min={values.startDate || undefined} error={errors.endDate}
                 onChange={(v) => set('endDate', v)} />
             </div>
-            <p className="tnum min-h-5 text-[13px] text-ink-muted" aria-live="polite">
-              {counting
-                ? 'Counting working days…'
-                : workingDays !== null
-                  ? `${workingDays} working ${workingDays === 1 ? 'day' : 'days'} (weekly offs and company holidays are not counted)`
-                  : ''}
-            </p>
+            <div className="min-h-5" aria-live="polite">
+              {counting ? (
+                <p className="flex items-center gap-2 text-[13px] text-ink-muted"><Spinner /> Counting working days…</p>
+              ) : workingDays !== null ? (
+                <p className="tnum flex items-center gap-2 rounded-xl bg-royal-50 px-3 py-2 text-[13px] text-royal-700">
+                  <Icon name="calendar" className="h-4 w-4 shrink-0" />
+                  <span>
+                    <span className="font-semibold">{workingDays} working {workingDays === 1 ? 'day' : 'days'}</span>
+                    {' '}· weekly offs and company holidays not counted
+                  </span>
+                </p>
+              ) : null}
+            </div>
             <label className="block" htmlFor="leave-reason">
-              <span className="text-[13px] font-medium text-ink-soft">Reason</span>
+              <span className="text-[14px] font-semibold text-ink">Reason</span>
               <textarea
                 id="leave-reason"
                 rows={3}
@@ -173,7 +187,8 @@ export default function LeaveScreen({
                 value={values.reason}
                 onChange={(e) => set('reason', e.target.value)}
                 aria-invalid={!!errors.reason}
-                className={`mt-1.5 w-full rounded-xl border bg-white px-4 py-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${errors.reason ? 'border-bad/50' : 'border-line-strong'}`}
+                placeholder="For example: family function, medical appointment"
+                className={`mt-2 w-full rounded-2xl border bg-white px-4 py-3 text-[16px] text-ink outline-none placeholder:text-ink-muted/60 focus:border-royal-600 focus:ring-4 focus:ring-royal-100 ${errors.reason ? 'border-bad/50' : 'border-line-strong'}`}
               />
               {errors.reason && <span className="mt-1.5 block text-[12px] text-bad">{errors.reason}</span>}
             </label>
@@ -188,16 +203,63 @@ export default function LeaveScreen({
               <Icon name="checkCircle" className="h-4 w-4" /> {sent}
             </p>
           )}
-          <Button type="submit" size="lg" disabled={saving || !balances || counting} className="mt-3 w-full">
-            {saving ? <><Spinner /> Sending</> : 'Apply for leave'}
-          </Button>
+          <button
+            type="submit"
+            disabled={saving || !balances || counting}
+            className="press save-cta mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl text-[16px] font-semibold text-white transition-transform duration-150 disabled:opacity-60"
+          >
+            {saving ? <><Spinner /> Sending</> : <><Icon name="check" className="h-5 w-5" /> Apply for leave</>}
+          </button>
         </form>
       </Section>
 
       <Section title="History">{history}</Section>
       </>
-      )}
+          ) },
+          {
+            id: 'compoff',
+            content: <CompOffRequestForm token={token} onSubmitted={onSubmitted} onError={onError} highlightId={highlightCompOffId} />,
+          },
+        ]}
+      />
     </>
+  )
+}
+
+/**
+ * One tile per leave type with the days available now; tapping a tile chooses
+ * that type in the form (the dropdown shows the same choice).
+ */
+function BalanceTiles({
+  balances, selected, onPick,
+}: {
+  balances: LeaveBalanceRecord[]
+  selected: LeaveFormValues['leaveType']
+  onPick: (type: LeaveBalanceRecord['leaveType']) => void
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2" role="group" aria-label="Choose a leave type">
+      {balances.map((b) => {
+        const on = b.leaveType === selected
+        const left = days(b.availableDays)
+        return (
+          <button
+            key={b.leaveType}
+            type="button"
+            onClick={() => onPick(b.leaveType)}
+            aria-pressed={on}
+            className={`press rounded-xl px-3 py-2.5 text-left transition-[transform,box-shadow] duration-150 ${
+              on ? 'bg-royal-50 ring-2 ring-inset ring-royal-600' : 'bg-white ring-1 ring-inset ring-line-strong'
+            }`}
+          >
+            <span className={`block text-[12px] font-medium ${on ? 'text-royal-700' : 'text-ink-muted'}`}>{b.label}</span>
+            <span className={`tnum block text-[18px] font-bold ${left === 0 ? 'text-ink-muted' : 'text-ink'}`}>
+              {left} <span className="text-[12px] font-medium text-ink-muted">{left === 1 ? 'day' : 'days'}</span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -252,7 +314,7 @@ function DateField({
 }) {
   return (
     <label className="block" htmlFor={id}>
-      <span className="text-[13px] font-medium text-ink-soft">{label}</span>
+      <span className="text-[14px] font-semibold text-ink">{label}</span>
       <input
         id={id}
         type="date"
@@ -260,7 +322,7 @@ function DateField({
         min={min}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={!!error}
-        className={`tnum mt-1.5 h-11 w-full rounded-xl border bg-white px-3 text-[15px] text-ink outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 ${error ? 'border-bad/50' : 'border-line-strong'}`}
+        className={`tnum mt-2 h-12 w-full rounded-2xl border bg-white px-2.5 text-[15px] text-ink outline-none focus:border-royal-600 focus:ring-4 focus:ring-royal-100 ${error ? 'border-bad/50' : 'border-line-strong'}`}
       />
       {error && <span className="mt-1.5 block text-[12px] text-bad">{error}</span>}
     </label>

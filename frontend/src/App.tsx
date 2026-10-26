@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
-import { canNotify, onNotificationTap } from './lib/systemNotifications'
+import { canNotify, cancelWeeklyReminders, onNotificationTap } from './lib/systemNotifications'
+import { stopPush } from './lib/push'
 import { listenForAndroidBack } from './lib/androidBack'
 import { setStatusBarTheme } from './lib/statusBar'
 import Login from './screens/Login'
@@ -265,6 +266,9 @@ export default function App() {
   // Log out: the session is dropped from memory, and on the phone the
   // remembered sign-in is revoked on the server and deleted with its lock.
   const logout = () => {
+    // This phone stops getting this account's pushes and Monday reminders.
+    void stopPush(session.token)
+    void cancelWeeklyReminders()
     if (session.refreshToken) {
       void revokeOnServer(session.refreshToken)
       void forgetRefreshToken()

@@ -9,7 +9,7 @@
 
 export type Role = 'employee' | 'hr'
 export type Status = 'Pending' | 'Approved' | 'Rejected'
-export type DocType = 'Offer Letter' | 'Experience Letter' | 'Payslip' | 'Form 16'
+export type DocType = 'Offer Letter' | 'Experience Letter' | 'Payslip' | 'Form 16' | 'Compensation Letter'
 
 export interface Employee {
   id: string
@@ -57,6 +57,8 @@ export interface EmployeeDocument {
   type: DocType
   title: string
   issuedOn: string
+  /** Payslips: the month, "YYYY-MM"; Form 16: the financial year. */
+  period?: string | null
 }
 
 export interface AppNotification {

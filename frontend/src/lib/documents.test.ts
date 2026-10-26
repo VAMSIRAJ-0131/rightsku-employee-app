@@ -120,7 +120,7 @@ describe('employee document shape', () => {
       sizeBytes: 100, version: 1, uploadedAt: '2026-06-01T05:00:00Z', updatedAt: '2026-06-02T05:00:00Z',
     }
     expect(toEmployeeDocument(record, 'EMP010')).toEqual({
-      id: '7', employeeId: 'EMP010', type: 'Form 16', title: 'Form 16 - FY 2025-26', issuedOn: '2026-06-02',
+      id: '7', employeeId: 'EMP010', type: 'Form 16', title: 'Form 16 - FY 2025-26', issuedOn: '2026-06-02', period: '2025-26',
     })
   })
 })

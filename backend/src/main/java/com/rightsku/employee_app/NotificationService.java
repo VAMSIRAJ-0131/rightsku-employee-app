@@ -5,6 +5,8 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
  *       so the app can open it.</li>
  *   <li>Messages hold only what the employee can already see in the app
  *       (dates, leave type, HR's note); never passwords or other secrets.</li>
+ *   <li>Each one is also pushed to the account's phones once it is saved
+ *       (PushNotifier), so it arrives even when the app is closed.</li>
  * </ul>
  */
 @Service
@@ -31,10 +35,18 @@ public class NotificationService {
 
     private final NotificationRepository notifications;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
-    public NotificationService(NotificationRepository notifications, Clock clock) {
+    @Autowired
+    public NotificationService(NotificationRepository notifications, Clock clock, ApplicationEventPublisher events) {
         this.notifications = notifications;
         this.clock = clock;
+        this.events = events;
+    }
+
+    /** Without pushes (unit tests). */
+    public NotificationService(NotificationRepository notifications, Clock clock) {
+        this(notifications, clock, event -> { });
     }
 
     /* ---------- Written when HR acts ---------- */
@@ -62,9 +74,12 @@ public class NotificationService {
 
     void documentPublished(EmployeeDocument document, boolean replaced) {
         boolean payslip = document.getType() == DocumentType.PAYSLIP;
-        String title = payslip
-                ? (replaced ? "Payslip updated" : "Payslip published")
-                : (replaced ? "Document updated" : "New document");
+        String title = switch (document.getType()) {
+            case PAYSLIP -> replaced ? "Payslip updated" : "Payslip published";
+            case FORM_16 -> replaced ? "Form 16 updated" : "Form 16 published";
+            case COMPENSATION_LETTER -> replaced ? "Compensation letter updated" : "Compensation letter published";
+            default -> replaced ? "Document updated" : "New document";
+        };
         send(document.getEmployee(),
                 payslip ? Notification.PAYSLIP_PUBLISHED : Notification.DOCUMENT_PUBLISHED,
                 title,
@@ -91,6 +106,68 @@ public class NotificationService {
                 "COMP_OFF_REQUEST", request.getId());
     }
 
+    /** HR set one leave type's balance. */
+    void leaveBalanceUpdated(Employee employee, String leaveLabel, java.math.BigDecimal days) {
+        send(employee, Notification.LEAVE_BALANCE_UPDATED, "Leave balance updated",
+                "HR set your " + leaveLabel + " leave balance to " + TimesheetService.plain(days) + " " + dayWord(days) + ".",
+                null, null);
+    }
+
+    /** HR added or deducted Comp-Off days. */
+    void compOffBalanceUpdated(Employee employee, java.math.BigDecimal change, java.math.BigDecimal balance, String reason) {
+        java.math.BigDecimal size = change.abs();
+        send(employee, Notification.LEAVE_BALANCE_UPDATED, "Comp-Off balance updated",
+                "HR " + (change.signum() >= 0 ? "added " : "deducted ") + TimesheetService.plain(size) + " " + dayWord(size)
+                        + (change.signum() >= 0 ? " to" : " from") + " your Comp-Off balance. It is now "
+                        + TimesheetService.plain(balance) + " " + dayWord(balance) + "." + withNote(reason),
+                null, null);
+    }
+
+    /** HR added, changed or removed a company holiday: every active employee hears about it. */
+    void holidaysUpdated(Iterable<Employee> everyone, String message) {
+        for (Employee employee : everyone) {
+            if (employee.isActive()) {
+                send(employee, Notification.HOLIDAYS_UPDATED, "Holiday calendar updated", message, null, null);
+            }
+        }
+    }
+
+    /** The employee's leave has waited 2 days or more for HR. */
+    void leavePendingReminder(Employee employee, LeaveRequest request) {
+        String type = LeaveType.valueOf(request.getLeaveType()).label();
+        send(employee, Notification.LEAVE_PENDING_REMINDER, "Leave still waiting for HR",
+                "Your " + type + " leave from " + DAY.format(request.getStartDate()) + " is still waiting for HR’s approval.",
+                "LEAVE_REQUEST", request.getId());
+    }
+
+    /** The employee's Comp-Off request has waited 2 days or more for HR. */
+    void compOffPendingReminder(Employee employee, CompOffRequest request) {
+        send(employee, Notification.COMP_OFF_PENDING_REMINDER, "Comp-Off still waiting for HR",
+                "Your Comp-Off request for " + DAY.format(request.getWorkDate()) + " is still waiting for HR’s approval.",
+                "COMP_OFF_REQUEST", request.getId());
+    }
+
+    /** An HR Admin: requests that have waited 2 days or more. */
+    void pendingApprovalsReminder(long hrUserId, int leaves, int compOffs) {
+        String what = (leaves > 0 ? leaves + " leave " + (leaves == 1 ? "request" : "requests") : "")
+                + (leaves > 0 && compOffs > 0 ? " and " : "")
+                + (compOffs > 0 ? compOffs + " Comp-Off " + (compOffs == 1 ? "request" : "requests") : "");
+        sendToUser(hrUserId, Notification.PENDING_APPROVALS_REMINDER, "Requests waiting for you",
+                what + " waited 2 days or more. Please approve or reject them.", null, null);
+    }
+
+    private static String dayWord(java.math.BigDecimal days) {
+        return days.compareTo(java.math.BigDecimal.ONE) == 0 ? "day" : "days";
+    }
+
+    /** Mondays at 11:00 and 21:00: last week's timesheet still has to be submitted. */
+    void timesheetReminder(Employee employee, LocalDate weekStart) {
+        send(employee, Notification.TIMESHEET_REMINDER, "Submit your timesheet",
+                "Your timesheet for the week of " + DAY.format(weekStart) + " is not submitted yet. "
+                        + "Please submit it, and enter today's hours too.",
+                "TIMESHEET_WEEK", weekStart);
+    }
+
     /** "Tuesday and Wednesday off", "Sunday off", "no weekly off". */
     static String weeklyOffsText(java.util.Set<java.time.DayOfWeek> offs) {
         if (offs.isEmpty()) {
@@ -107,8 +184,13 @@ public class NotificationService {
         if (employee == null || employee.getUser() == null || employee.getUser().getId() == null) {
             return;
         }
-        notifications.save(Notification.of(employee.getUser().getId(), type, title, message, clock.instant())
-                .linkTo(linkType, linkKey));
+        sendToUser(employee.getUser().getId(), type, title, message, linkType, linkKey);
+    }
+
+    private void sendToUser(long userId, String type, String title, String message, String linkType, Object linkKey) {
+        notifications.save(Notification.of(userId, type, title, message, clock.instant()).linkTo(linkType, linkKey));
+        events.publishEvent(new PushNotifier.Created(userId, type, title, message, linkType,
+                linkKey == null ? null : String.valueOf(linkKey)));
     }
 
     private static String withNote(String note) {

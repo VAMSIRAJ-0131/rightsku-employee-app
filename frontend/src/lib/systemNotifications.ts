@@ -13,14 +13,14 @@
 // timed reminders, so it never needs that permission (it is also removed in
 // AndroidManifest.xml).
 import { Capacitor } from '@capacitor/core'
-import { LocalNotifications } from '@capacitor/local-notifications'
+import { LocalNotifications, Weekday } from '@capacitor/local-notifications'
 import { FileOpener } from '@capawesome-team/capacitor-file-opener'
 
 const DOWNLOADS = 'downloads'
 const UPDATES = 'updates'
 
 /** Extra data stored on a notification, read back when it is tapped. */
-type Extra = { kind: 'file'; uri: string; mimeType: string } | { kind: 'inbox' }
+type Extra = { kind: 'file'; uri: string; mimeType: string } | { kind: 'inbox' } | { kind: 'timesheet' }
 
 let channelsReady: Promise<void> | null = null
 
@@ -60,6 +60,7 @@ export function documentKind(title: string): string {
   if (t.includes('offer')) return 'Offer letter'
   if (t.includes('experience')) return 'Experience letter'
   if (t.includes('form 16') || t.includes('form16')) return 'Form 16'
+  if (t.includes('compensation') || t.includes('hike')) return 'Compensation letter'
   if (t.startsWith('salary summary')) return 'Salary summary'
   return 'Document'
 }
@@ -149,6 +150,54 @@ export function setInboxOpener(open: (() => void) | null): void {
   inboxOpener = open
 }
 
+/** Set by the signed-in employee screen, so tapping a timesheet reminder opens the timesheet. */
+let timesheetOpener: (() => void) | null = null
+export function setTimesheetOpener(open: (() => void) | null): void {
+  timesheetOpener = open
+}
+
+/* ---------- Weekly timesheet reminder kept on the phone ---------- */
+
+// Two fixed ids, so scheduling again replaces them instead of adding more.
+const REMINDER_IDS = [710011, 710021]
+
+/**
+ * The phone's own weekly reminder (Mondays 11:00 and 21:00), used while push
+ * notifications from the server are not set up. Android keeps it when the app
+ * is closed or swiped away. Scheduling again only replaces it.
+ */
+export async function scheduleWeeklyReminders(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform() || !(await canNotify())) return false
+  try {
+    await ensureChannels()
+    const extra: Extra = { kind: 'timesheet' }
+    await LocalNotifications.schedule({
+      notifications: [11, 21].map((hour, i) => ({
+        id: REMINDER_IDS[i],
+        channelId: UPDATES,
+        title: 'Submit your timesheet',
+        body: 'Submit last week’s timesheet if you haven’t yet, and enter today’s hours.',
+        autoCancel: true,
+        extra,
+        schedule: { on: { weekday: Weekday.Monday, hour, minute: 0 }, allowWhileIdle: true },
+      })),
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Stops the phone's own reminder (push from the server took over, or the employee logged out). */
+export async function cancelWeeklyReminders(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    await LocalNotifications.cancel({ notifications: REMINDER_IDS.map((id) => ({ id })) })
+  } catch {
+    // Nothing scheduled.
+  }
+}
+
 /**
  * What happens when a notification is tapped, registered once when the app
  * starts (so it also works when the tap launched the app): a download opens
@@ -164,6 +213,8 @@ export function onNotificationTap(): () => void {
       FileOpener.openFile({ path: extra.uri, mimeType: extra.mimeType }).catch(() => {})
     } else if (extra?.kind === 'inbox') {
       inboxOpener?.()
+    } else if (extra?.kind === 'timesheet') {
+      timesheetOpener?.()
     }
   })
   return () => {

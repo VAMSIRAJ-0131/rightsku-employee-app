@@ -12,12 +12,12 @@ const docs = [
 ]
 
 describe('document type filter', () => {
-  it('keeps the same choices, in the same order, as the old chips', () => {
-    expect(DOCUMENT_FILTERS).toEqual(['All', 'Offer Letter', 'Experience Letter', 'Payslip', 'Form 16'])
+  it('offers every type except payslips, which have their own screen', () => {
+    expect(DOCUMENT_FILTERS).toEqual(['All', 'Offer Letter', 'Experience Letter', 'Form 16', 'Compensation Letter'])
   })
 
   it('shows everything for All and only the chosen type otherwise', () => {
-    expect(filterDocuments(docs, 'All')).toHaveLength(4)
+    expect(filterDocuments(docs, 'All').map((d) => d.id)).toEqual(['3', '4']) // no payslips
     expect(filterDocuments(docs, 'Payslip').map((d) => d.id)).toEqual(['1', '2'])
     expect(filterDocuments(docs, 'Offer Letter').map((d) => d.id)).toEqual(['3'])
     expect(filterDocuments(docs, 'Experience Letter')).toEqual([])
@@ -26,11 +26,11 @@ describe('document type filter', () => {
 
   it('dropdown options show how many documents each choice has', () => {
     expect(documentFilterOptions(docs)).toEqual([
-      { value: 'All', label: 'All documents', hint: '4' },
+      { value: 'All', label: 'All documents', hint: '2' },
       { value: 'Offer Letter', label: 'Offer Letter', hint: '1' },
       { value: 'Experience Letter', label: 'Experience Letter', hint: '0' },
-      { value: 'Payslip', label: 'Payslip', hint: '2' },
       { value: 'Form 16', label: 'Form 16', hint: '1' },
+      { value: 'Compensation Letter', label: 'Compensation Letter', hint: '0' },
     ])
   })
 

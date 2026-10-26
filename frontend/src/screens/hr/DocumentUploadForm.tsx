@@ -6,7 +6,7 @@ import { Icon } from '../../components/Icons'
 import { Avatar, Button, Card, List, ListRow, Notice, SearchField, Section, Spinner, Tag, TopBar } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import {
-  DOCUMENT_ACCEPT, DOCUMENT_TYPES, checkFile, financialYears, formatSize, periodKind, updateDocument, uploadDocument,
+  DOCUMENT_ACCEPT, DOCUMENT_TYPES, calendarYears, checkFile, financialYears, formatSize, periodKind, updateDocument, uploadDocument,
   validateUpload, type ApiDocumentType, type DocumentRecord, type UploadFormErrors, type UploadFormValues,
 } from '../../lib/documents'
 import { fullName, listEmployees, type EmployeeRecord } from '../../lib/employees'
@@ -54,7 +54,8 @@ export default function DocumentUploadForm(props: Props) {
   const initialType: ApiDocumentType | '' = props.mode === 'upload' ? props.initialType ?? '' : props.document.type
   const [values, setValues] = useState<UploadFormValues>({
     type: initialType,
-    period: initialType === 'PAYSLIP' ? lastMonth() : initialType === 'FORM_16' ? financialYears()[1] : '',
+    period: initialType === 'PAYSLIP' ? lastMonth() : initialType === 'FORM_16' ? financialYears()[1]
+      : initialType === 'COMPENSATION_LETTER' ? calendarYears()[0] : '',
     title: '',
     file: null,
   })
@@ -68,7 +69,10 @@ export default function DocumentUploadForm(props: Props) {
 
   function chooseType(type: ApiDocumentType) {
     const kind = periodKind(type)
-    setValues((v) => ({ ...v, type, period: kind === 'month' ? lastMonth() : kind === 'year' ? financialYears()[1] : '' }))
+    setValues((v) => ({
+      ...v, type,
+      period: kind === 'month' ? lastMonth() : kind === 'year' ? financialYears()[1] : kind === 'calendarYear' ? calendarYears()[0] : '',
+    }))
     setErrors((e) => ({ ...e, type: undefined, period: undefined }))
   }
 
@@ -214,6 +218,22 @@ export default function DocumentUploadForm(props: Props) {
                     {financialYears().map((fy) => (
                       <option key={fy} value={fy}>
                         FY {fy}
+                      </option>
+                    ))}
+                  </select>
+                </Labeled>
+              )}
+              {kind === 'calendarYear' && (
+                <Labeled label="Year of the hike" htmlFor="doc-period" error={errors.period}>
+                  <select
+                    id="doc-period"
+                    value={values.period}
+                    onChange={(e) => setValues((v) => ({ ...v, period: e.target.value }))}
+                    className={inputClass(!!errors.period)}
+                  >
+                    {calendarYears().map((y) => (
+                      <option key={y} value={y}>
+                        {y}
                       </option>
                     ))}
                   </select>

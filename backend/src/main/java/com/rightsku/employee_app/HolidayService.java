@@ -1,7 +1,9 @@
 package com.rightsku.employee_app;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -11,16 +13,36 @@ import org.springframework.transaction.annotation.Transactional;
  * The company holiday calendar, managed by HR. Holidays apply to every
  * employee: no timesheet can be submitted for a holiday. Timesheets already
  * submitted for a date before it became a holiday are kept unchanged.
+ * Every active employee is told when HR adds, changes or removes one.
  */
 @Service
 public class HolidayService {
 
     private final CompanyHolidayRepository holidays;
+    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.ENGLISH);
+
     private final AuditEntryRepository audit;
+    private final EmployeeRepository employees;
+    private final NotificationService notifications;
 
     public HolidayService(CompanyHolidayRepository holidays, AuditEntryRepository audit) {
+        this(holidays, audit, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public HolidayService(CompanyHolidayRepository holidays, AuditEntryRepository audit,
+            EmployeeRepository employees, NotificationService notifications) {
         this.holidays = holidays;
         this.audit = audit;
+        this.employees = employees;
+        this.notifications = notifications;
+    }
+
+    /** Tells every active employee about a change to the holiday calendar. */
+    private void tellEveryone(String message) {
+        if (employees != null && notifications != null) {
+            notifications.holidaysUpdated(employees.findAll(), message);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -44,6 +66,7 @@ public class HolidayService {
         CompanyHoliday holiday = CompanyHoliday.create(date, name, actorUserId);
         save(holiday);
         record(actorUserId, "HOLIDAY_ADDED", holiday);
+        tellEveryone(name + " was added on " + DAY.format(date) + ".");
         return HolidayResponse.from(holiday);
     }
 
@@ -57,9 +80,11 @@ public class HolidayService {
                 .ifPresent(other -> {
                     throw ApiException.conflict("date", "There is already a holiday on this date: " + other.getName() + ".");
                 });
+        String before = holiday.getName() + " on " + DAY.format(holiday.getDate());
         holiday.change(date, name, actorUserId);
         save(holiday);
         record(actorUserId, "HOLIDAY_CHANGED", holiday);
+        tellEveryone(before + " is now " + name + " on " + DAY.format(date) + ".");
         return HolidayResponse.from(holiday);
     }
 
@@ -69,6 +94,7 @@ public class HolidayService {
         CompanyHoliday holiday = find(id);
         holidays.delete(holiday);
         record(actorUserId, "HOLIDAY_REMOVED", holiday);
+        tellEveryone(holiday.getName() + " on " + DAY.format(holiday.getDate()) + " was removed from the holiday calendar.");
     }
 
     private CompanyHoliday find(long id) {

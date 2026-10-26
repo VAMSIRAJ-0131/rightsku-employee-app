@@ -8,6 +8,14 @@ import type { Timesheet } from '../../data/types'
 import { formatShortDate } from '../../lib/format'
 import { groupByWeek, statusBreakdown, toggleWeek, weekSummaryLine } from '../../lib/timesheetHistory'
 
+/** The icon tile's colours for a week's status. */
+export function statusTile(status: string): string {
+  if (status === 'Approved') return 'bg-approved-soft text-approved-ink'
+  if (status === 'Pending') return 'bg-pending-soft text-pending-ink'
+  if (status === 'Rejected') return 'bg-rejected-soft text-rejected-ink'
+  return 'bg-royal-50 text-royal-700'
+}
+
 export default function WeeklyTimesheetHistory({
   items, highlightWeek = null,
 }: {
@@ -35,10 +43,13 @@ export default function WeeklyTimesheetHistory({
               onClick={() => setOpen((o) => toggleWeek(o, week.weekStart))}
               aria-expanded={isOpen}
               aria-controls={detailsId}
-              className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left hover:bg-mist-50/60 active:bg-mist-50"
+              className="flex min-h-[72px] w-full items-center gap-3.5 px-4 py-3 text-left hover:bg-mist-50/60 active:bg-mist-50"
             >
+              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${statusTile(week.status)}`}>
+                <Icon name="clock" className="h-[22px] w-[22px]" />
+              </span>
               <span className="min-w-0 flex-1">
-                <span className="tnum block truncate text-[15px] font-medium text-ink">{week.label}</span>
+                <span className="tnum block truncate text-[15px] font-semibold text-ink">{week.label}</span>
                 <span className="tnum mt-0.5 block truncate text-[13px] text-ink-muted">
                   {weekSummaryLine(week)}
                   {week.submittedOn && ` · sent ${formatShortDate(week.submittedOn)}`}

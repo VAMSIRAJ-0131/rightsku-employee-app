@@ -313,6 +313,7 @@ class LeaveServiceTest {
     @Test
     void theEmployeeIsNotifiedWhenHrApprovesOrRejects() {
         service.setBalance(10L, "CASUAL", new BigDecimal("5"), HR);
+        org.mockito.Mockito.clearInvocations(notificationRows); // "balance updated": checked in HrChangeNotificationsTest
         LeaveRequestResponse first = service.apply(110L, leave("CASUAL", "2026-10-19", "2026-10-20"));
         LeaveRequestResponse second = service.apply(110L, leave("CASUAL", "2026-10-26", "2026-10-26"));
         verify(notificationRows, never()).save(any());   // applying notifies nobody
@@ -337,6 +338,7 @@ class LeaveServiceTest {
         service.setBalance(10L, "CASUAL", new BigDecimal("5"), HR);
         LeaveRequestResponse sent = service.apply(110L, leave("CASUAL", "2026-10-19", "2026-10-21"));
         service.setBalance(10L, "CASUAL", new BigDecimal("1"), HR);
+        org.mockito.Mockito.clearInvocations(notificationRows); // the balance changes notify; the refused approval must not
 
         assertApiError(catchThrowable(() -> service.approve(sent.id(), null, HR)), HttpStatus.CONFLICT, null);
         verify(notificationRows, never()).save(any());

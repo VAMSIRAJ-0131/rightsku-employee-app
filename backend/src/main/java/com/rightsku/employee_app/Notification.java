@@ -20,6 +20,12 @@ public class Notification {
     public static final String SCHEDULE_CHANGED = "SCHEDULE_CHANGED";
     public static final String COMP_OFF_APPROVED = "COMP_OFF_APPROVED";
     public static final String COMP_OFF_REJECTED = "COMP_OFF_REJECTED";
+    public static final String TIMESHEET_REMINDER = "TIMESHEET_REMINDER";
+    public static final String LEAVE_BALANCE_UPDATED = "LEAVE_BALANCE_UPDATED";
+    public static final String HOLIDAYS_UPDATED = "HOLIDAYS_UPDATED";
+    public static final String LEAVE_PENDING_REMINDER = "LEAVE_PENDING_REMINDER";
+    public static final String COMP_OFF_PENDING_REMINDER = "COMP_OFF_PENDING_REMINDER";
+    public static final String PENDING_APPROVALS_REMINDER = "PENDING_APPROVALS_REMINDER";
 
     static final int MAX_TITLE = 150;
     static final int MAX_MESSAGE = 500;

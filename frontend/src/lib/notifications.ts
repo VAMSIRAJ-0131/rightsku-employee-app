@@ -28,6 +28,9 @@ export type NotificationTarget =
   | { screen: 'documents'; key: string | null }
   | { screen: 'compoff'; key: string | null }
   | { screen: 'schedule'; key: string | null }
+  | { screen: 'timesheet'; key: string | null }
+  | { screen: 'holidays' }
+  | { screen: 'leave' }
   | { screen: 'notifications' }
 
 /**
@@ -37,9 +40,13 @@ export type NotificationTarget =
 export function notificationTarget(n: Pick<NotificationRecord, 'type' | 'linkType' | 'linkKey'>): NotificationTarget {
   const key = n.linkKey ?? null
   const type = n.type ?? ''
+  // Specific types first: "LEAVE_BALANCE_UPDATED" must not fall under the LEAVE_ requests rule.
+  if (type === 'HOLIDAYS_UPDATED') return { screen: 'holidays' }
+  if (type === 'LEAVE_BALANCE_UPDATED') return { screen: 'leave' }
   if (n.linkType === 'COMP_OFF_REQUEST' || type.startsWith('COMP_OFF_')) return { screen: 'compoff', key }
   if (n.linkType === 'SCHEDULE' || type === 'SCHEDULE_CHANGED') return { screen: 'schedule', key }
   if (n.linkType === 'LEAVE_REQUEST' || type.startsWith('LEAVE_')) return { screen: 'requests', view: 'leaves', key }
+  if (type === 'TIMESHEET_REMINDER') return { screen: 'timesheet', key }
   if (n.linkType === 'TIMESHEET_WEEK' || type.startsWith('TIMESHEET_')) return { screen: 'requests', view: 'timesheets', key }
   if (type === 'PAYSLIP_PUBLISHED') return { screen: 'payslips', key }
   if (n.linkType === 'DOCUMENT' || type === 'DOCUMENT_PUBLISHED') return { screen: 'documents', key }

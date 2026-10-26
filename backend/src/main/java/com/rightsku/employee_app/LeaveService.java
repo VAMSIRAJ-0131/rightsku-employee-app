@@ -127,6 +127,9 @@ public class LeaveService {
         audit.save(AuditEntry.of(actorUserId, "LEAVE_BALANCE_CHANGED", "EMPLOYEE", employee.getEmployeeCode(),
                 "{\"leaveType\":\"" + type.name() + "\",\"previousDays\":" + previous.toPlainString()
                         + ",\"newDays\":" + next.toPlainString() + "}"));
+        if (previous.compareTo(next) != 0) {
+            notifications.leaveBalanceUpdated(employee, type.label(), next);
+        }
         return balanceList(employee.getId());
     }
 

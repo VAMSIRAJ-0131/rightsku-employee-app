@@ -44,6 +44,7 @@ public class CompOffService {
     private final EmployeeRepository employees;
     private final AppUserRepository users;
     private final AuditEntryRepository audit;
+    private final NotificationService notifications;
 
     public CompOffService(
             LeaveBalanceRepository balances,
@@ -52,12 +53,25 @@ public class CompOffService {
             EmployeeRepository employees,
             AppUserRepository users,
             AuditEntryRepository audit) {
+        this(balances, requests, adjustments, employees, users, audit, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public CompOffService(
+            LeaveBalanceRepository balances,
+            LeaveRequestRepository requests,
+            LeaveBalanceAdjustmentRepository adjustments,
+            EmployeeRepository employees,
+            AppUserRepository users,
+            AuditEntryRepository audit,
+            NotificationService notifications) {
         this.balances = balances;
         this.requests = requests;
         this.adjustments = adjustments;
         this.employees = employees;
         this.users = users;
         this.audit = audit;
+        this.notifications = notifications;
     }
 
     /** The current balance, days waiting for HR, and the change history (newest first). */
@@ -109,6 +123,9 @@ public class CompOffService {
         audit.save(AuditEntry.of(actorUserId, "COMP_OFF_ADJUSTED", "EMPLOYEE", employee.getEmployeeCode(),
                 "{\"changeDays\":" + change.toPlainString() + ",\"previousDays\":" + before.toPlainString()
                         + ",\"newDays\":" + after.toPlainString() + "}"));
+        if (notifications != null) {
+            notifications.compOffBalanceUpdated(employee, change, after, reason);
+        }
         return summaryOf(employee.getId());
     }
 

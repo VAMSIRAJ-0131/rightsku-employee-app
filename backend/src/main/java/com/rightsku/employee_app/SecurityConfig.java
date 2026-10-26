@@ -143,6 +143,8 @@ public class SecurityConfig {
                 ).authenticated()
                 // Stay signed in on a phone: a full (not temporary-password) session only.
                 .requestMatchers(HttpMethod.POST, REMEMBER_DEVICE_PATH).hasAnyRole("EMPLOYEE", "HR_ADMIN")
+                // The phone's push token, for the signed-in account (not a temporary-password session).
+                .requestMatchers("/api/push/**").hasAnyRole("EMPLOYEE", "HR_ADMIN")
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/error").permitAll()
                 // Server health (UP/DOWN only, no details) for Docker and monitoring.

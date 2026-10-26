@@ -11,7 +11,9 @@ import { Icon } from '../../components/Icons'
 import { Button, Card, Notice, Section, Spinner, StatusBadge, TopBar, useBackHandler } from '../../components/ui'
 import type { ApiError } from '../../lib/api'
 import { formatShortDate, monthLabel, toIsoDate } from '../../lib/format'
-import { MAX_DAYS_BACK, MAX_HOURS_PER_DAY, MIN_HOURS_PER_DAY, weekStartOf } from '../../lib/workCalendar'
+import { MAX_HOURS_PER_DAY, MIN_HOURS_PER_DAY, weekStartOf } from '../../lib/workCalendar'
+import { oldestOpenWeek } from '../../lib/timesheetHistory'
+import { slideClass, useSwipe } from '../../components/useSwipe'
 import {
   CONFIRM_SUBMIT_MESSAGE, approvedLeaveLabel, createWeekActions, holidayLabel, creditedDay, formatDayLong, formatHours, getMyWeek, saveWeekDraft, startingHours,
   hasUnsavedChanges, submitMyWeek, weekTotals,
@@ -61,7 +63,11 @@ export default function TimesheetScreen({
   registerLeaveGuard?: (guard: ((proceed: () => void) => boolean) | null) => void
 }) {
   const todayLocal = toIsoDate(new Date())
-  const [weekStart, setWeekStart] = useState(() => initialWeekStart ?? weekStartOf(todayLocal))
+  // This week, or a past week to look at (back to 60 days, like the server).
+  const [weekStart, setWeekStart] = useState(() => {
+    const wanted = initialWeekStart ?? weekStartOf(todayLocal)
+    return wanted < oldestOpenWeek(todayLocal) ? oldestOpenWeek(todayLocal) : wanted
+  })
   const [week, setWeek] = useState<WeekData | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -98,17 +104,39 @@ export default function TimesheetScreen({
 
   const weekEnd = shiftDays(weekStart, 6)
 
+  // Past weeks already seen (or loaded ahead), so swiping back to one shows it
+  // at once. Only past weeks: they can't change here (hours go in on the day).
+  const pastWeeks = useRef(new Map<string, WeekData>())
+
   useEffect(() => {
     const controller = new AbortController()
-    setLoading(true)
-    setLoadError(null)
-    getMyWeek(token, weekStart, controller.signal).then((result) => {
-      if (controller.signal.aborted) return
+    const cached = weekStart < weekStartOf(todayLocal) ? pastWeeks.current.get(weekStart) : undefined
+    if (cached) {
       setLoading(false)
-      if (result.ok) show(result.data)
-      else setLoadError(onError(result.error).message)
-    })
+      setLoadError(null)
+      show(cached)
+    } else {
+      setLoading(true)
+      setLoadError(null)
+      getMyWeek(token, weekStart, controller.signal).then((result) => {
+        if (controller.signal.aborted) return
+        setLoading(false)
+        if (result.ok) {
+          if (weekStart < weekStartOf(todayLocal)) pastWeeks.current.set(weekStart, result.data)
+          show(result.data)
+        } else setLoadError(onError(result.error).message)
+      })
+    }
+    // Load the week before in the background, ready for a swipe back.
+    const before = shiftDays(weekStart, -7)
+    if (before >= oldestOpenWeek(todayLocal) && !pastWeeks.current.has(before)) {
+      getMyWeek(token, before, controller.signal).then((result) => {
+        if (result.ok) pastWeeks.current.set(before, result.data)
+      })
+    }
     return () => controller.abort()
+    // todayLocal and show are the same for the screen's life.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, weekStart, retry, onError])
 
   /** Shows a week from the server: its saved hours, description and status. */
@@ -121,14 +149,21 @@ export default function TimesheetScreen({
     setErrors(NO_ERRORS)
   }
 
+  // Which side the week shown now came from, so it slides in from there.
+  const [slideFrom, setSlideFrom] = useState<'next' | 'prev' | null>(null)
+
   function goToWeek(next: string) {
+    setSlideFrom(next > weekStart ? 'next' : 'prev')
     setWeekStart(next)
-    setWeek(null)
+    // A week loaded already shows straight away; otherwise "Loading your week".
+    const cached = next < weekStartOf(todayLocal) ? pastWeeks.current.get(next) : undefined
+    if (cached) show(cached)
+    else setWeek(null)
     setSuccess(null)
   }
 
   const thisWeek = weekStartOf(todayLocal)
-  const oldestWeek = weekStartOf(shiftDays(todayLocal, -MAX_DAYS_BACK))
+  const oldestWeek = oldestOpenWeek(todayLocal)
   const current = week && week.weekStart === weekStart ? week : null
   const totals = current ? weekTotals(current, hours) : null
   // A week submitted as a whole, or one whose working days were all submitted one day at a time.
@@ -156,6 +191,10 @@ export default function TimesheetScreen({
   const changeWeek = (next: string) => {
     if (!guard(() => goToWeek(next))) goToWeek(next)
   }
+  const swipeRef = useSwipe<HTMLDivElement>(
+    weekStart < thisWeek && busy === null ? () => changeWeek(shiftDays(weekStart, 7)) : undefined,
+    weekStart > oldestWeek && busy === null ? () => changeWeek(shiftDays(weekStart, -7)) : undefined,
+  )
 
   function setDayHours(iso: string, value: string) {
     if (current && iso !== current.today) return
@@ -215,6 +254,10 @@ export default function TimesheetScreen({
     <>
       <TopBar title="Timesheet" subtitle="Log your hours for the week" onBack={back} />
 
+      {/* Swipe left for the next week, right for the previous one (same limits as the arrows). */}
+      <div ref={swipeRef}>
+      <div key={weekStart} className={slideClass(slideFrom)}>
+
       <Section>
         <Card className="flex items-center justify-between px-2 py-1">
           <button
@@ -227,7 +270,7 @@ export default function TimesheetScreen({
             <Icon name="arrowLeft" className="h-5 w-5" />
           </button>
           <div className="text-center" aria-live="polite">
-            <p className="tnum text-[15px] font-semibold text-ink">
+            <p className="tnum text-[16px] font-bold text-ink">
               {formatShortDate(weekStart)} – {formatShortDate(weekEnd)}
             </p>
             <p className="text-[12px] text-ink-muted">
@@ -358,6 +401,9 @@ export default function TimesheetScreen({
           </Section>
         </>
       )}
+      </div>
+
+      </div>
 
       <Section title={historyWeeks ? `History (${historyWeeks} ${historyWeeks === 1 ? 'week' : 'weeks'})` : 'History'}>{history}</Section>
 
@@ -500,10 +546,13 @@ function DayRow({
           htmlFor={id}
           className={`flex min-h-12 min-w-0 flex-1 items-center justify-between gap-2 rounded-xl border px-3 py-2 ${
             greyed ? 'border-line bg-mist-50 text-ink-muted' : 'border-line-strong bg-white text-ink'
-          } ${isToday ? 'ring-1 ring-inset ring-navy-700/40' : ''}`}
+          } ${isToday ? 'border-royal-600/50 bg-royal-50/50 ring-2 ring-inset ring-royal-600/30' : ''}`}
         >
           <span className="min-w-0">
-            <span className={`block truncate text-[15px] ${greyed ? '' : 'font-medium'}`}>{label}</span>
+            <span className={`flex items-center gap-2 truncate text-[15px] ${greyed ? '' : 'font-medium'} ${isToday ? 'font-semibold text-royal-700' : ''}`}>
+              {label}
+              {isToday && <span className="shrink-0 rounded-full bg-royal-600 px-2 py-0.5 text-[11px] font-semibold text-white">Today</span>}
+            </span>
             {note && (
               <span className={`block truncate text-[12px] leading-tight ${!noteFor(day) && emptyNote ? `font-medium ${emptyNote.tone}` : ''}`}>
                 {note}
@@ -552,7 +601,7 @@ function DayRow({
             aria-label={`Hours for ${label}${note ? ` (${note.toLowerCase()})` : ''}`}
             aria-invalid={!!error}
             className={`tnum h-12 w-[5.5rem] shrink-0 rounded-xl border px-3 text-center text-[15px] outline-none focus:border-mist-500 focus:ring-4 focus:ring-mist-100 disabled:cursor-not-allowed disabled:bg-mist-50 disabled:text-ink-muted ${
-              error ? 'border-bad/60 bg-white text-ink' : 'border-line-strong bg-white text-ink'
+              error ? 'border-bad/60 bg-white text-ink' : isToday && !disabled ? 'border-royal-600 bg-white font-semibold text-ink ring-2 ring-royal-100' : 'border-line-strong bg-white text-ink'
             }`}
           />
         )}

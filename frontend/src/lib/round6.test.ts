@@ -100,5 +100,6 @@ describe('home: tapping a week opens that week', () => {
     expect(canOpenWeek('2026-10-26', today)).toBe(false) // Week 5: starts Monday
     expect(canOpenWeek('2026-10-26', '2026-10-27')).toBe(true) // once it has started
     expect(canOpenWeek('2026-08-17', today)).toBe(false) // older than 60 days
+    expect(canOpenWeek('2026-10-05', today)).toBe(true) // an earlier week, to look at
   })
 })

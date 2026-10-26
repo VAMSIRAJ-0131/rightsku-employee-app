@@ -86,3 +86,13 @@ deploy/backups/
 *.dump
 *.dump.gpg
 *.dump.gpg.part
+
+# Firebase (push notifications) - never commit
+# Android app config for this Firebase project
+frontend/android/app/google-services.json
+# Firebase service account keys (private keys) if one is ever saved inside the project
+*firebase-adminsdk*.json
+fcm-key*.json
+
+# Local backend settings for this computer (read by Spring Boot from backend/config) - never commit
+backend/config/

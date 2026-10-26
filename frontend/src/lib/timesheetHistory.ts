@@ -125,12 +125,18 @@ export interface MonthWeek {
  * saved. One approved day never makes a whole week approved.
  */
 /**
- * Whether the week starting on this Monday can be opened in the timesheet: the
- * same limits as the timesheet's own arrows and the server (this week back to
- * the week of 60 days ago; future weeks can't be filled in yet).
+ * Whether the week starting on this Monday can be opened in the timesheet:
+ * this week back to the week of 60 days ago, the same limits as the
+ * timesheet's arrows, swipe and the server. Past weeks open to be looked at:
+ * hours only go in on the day itself. Future weeks can't be opened.
  */
 export function canOpenWeek(weekStart: string, today: string): boolean {
-  return weekStart <= weekStartOf(today) && weekStart >= weekStartOf(addDays(today, -MAX_DAYS_BACK))
+  return weekStart <= weekStartOf(today) && weekStart >= oldestOpenWeek(today)
+}
+
+/** The Monday of the oldest week the timesheet opens on (60 days back). */
+export function oldestOpenWeek(today: string): string {
+  return weekStartOf(addDays(today, -MAX_DAYS_BACK))
 }
 
 export function monthWeeks(entries: Timesheet[], today: string): MonthWeek[] {

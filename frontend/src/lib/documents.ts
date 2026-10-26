@@ -4,7 +4,7 @@
 import { apiDownload, apiRequest, type ApiResult } from './api'
 import type { DocType, EmployeeDocument } from '../data/types'
 
-export type ApiDocumentType = 'OFFER_LETTER' | 'EXPERIENCE_LETTER' | 'PAYSLIP' | 'FORM_16'
+export type ApiDocumentType = 'OFFER_LETTER' | 'EXPERIENCE_LETTER' | 'PAYSLIP' | 'FORM_16' | 'COMPENSATION_LETTER'
 
 export interface DocumentRecord {
   id: number
@@ -23,11 +23,12 @@ export interface DocumentRecord {
   updatedAt: string
 }
 
-export const DOCUMENT_TYPES: { type: ApiDocumentType; label: DocType; period: 'none' | 'month' | 'year'; hint: string }[] = [
+export const DOCUMENT_TYPES: { type: ApiDocumentType; label: DocType; period: 'none' | 'month' | 'year' | 'calendarYear'; hint: string }[] = [
   { type: 'OFFER_LETTER', label: 'Offer Letter', period: 'none', hint: 'One per employee' },
   { type: 'EXPERIENCE_LETTER', label: 'Experience Letter', period: 'none', hint: 'Issued on exit' },
   { type: 'PAYSLIP', label: 'Payslip', period: 'month', hint: 'One per month' },
   { type: 'FORM_16', label: 'Form 16', period: 'year', hint: 'One per financial year' },
+  { type: 'COMPENSATION_LETTER', label: 'Compensation Letter', period: 'calendarYear', hint: 'Hike letter · one per year' },
 ]
 
 /** Same limits as the backend (DocumentFileRules). */
@@ -37,7 +38,7 @@ const ALLOWED_EXTENSIONS = /\.(pdf|png|jpe?g)$/i
 /** For the file picker. */
 export const DOCUMENT_ACCEPT = '.pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg'
 
-export function periodKind(type: ApiDocumentType): 'none' | 'month' | 'year' {
+export function periodKind(type: ApiDocumentType): 'none' | 'month' | 'year' | 'calendarYear' {
   return DOCUMENT_TYPES.find((t) => t.type === type)?.period ?? 'none'
 }
 
@@ -46,6 +47,11 @@ export function labelFor(type: ApiDocumentType): DocType {
 }
 
 /** Financial years for Form 16, newest first: "2026-27", "2025-26", ... */
+/** Calendar years for a hike letter, newest first: "2026", "2025", ... */
+export function calendarYears(today = new Date(), count = 6): string[] {
+  return Array.from({ length: count }, (_, i) => String(today.getFullYear() - i))
+}
+
 export function financialYears(today = new Date(), count = 6): string[] {
   // The Indian financial year starts on 1 April.
   const startYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1
@@ -81,6 +87,7 @@ export function validateUpload(values: UploadFormValues): UploadFormErrors {
   else {
     const kind = periodKind(values.type)
     if (kind === 'month' && !/^\d{4}-(0[1-9]|1[0-2])$/.test(values.period)) errors.period = 'Choose the payslip month.'
+    if (kind === 'calendarYear' && !/^\d{4}$/.test(values.period)) errors.period = 'Choose the year of the hike letter.'
     if (kind === 'year') {
       const m = /^(\d{4})-(\d{2})$/.exec(values.period)
       if (!m || (Number(m[1]) + 1) % 100 !== Number(m[2])) errors.period = 'Choose the financial year.'
@@ -112,11 +119,12 @@ export function formatSize(bytes: number): string {
 export type DocumentFilter = 'All' | DocType
 
 /** The filter choices in display order. */
-export const DOCUMENT_FILTERS: DocumentFilter[] = ['All', 'Offer Letter', 'Experience Letter', 'Payslip', 'Form 16']
+export const DOCUMENT_FILTERS: DocumentFilter[] = ['All', 'Offer Letter', 'Experience Letter', 'Form 16', 'Compensation Letter']
 
 /** The documents shown for a filter (all of them for 'All'). */
+/** The Documents screen's list: payslips are left out (they have their own screen). */
 export function filterDocuments(docs: EmployeeDocument[], filter: DocumentFilter): EmployeeDocument[] {
-  return filter === 'All' ? docs : docs.filter((d) => d.type === filter)
+  return filter === 'All' ? docs.filter((d) => d.type !== 'Payslip') : docs.filter((d) => d.type === filter)
 }
 
 /** Dropdown options with how many documents each choice shows (no count while loading). */
@@ -136,6 +144,7 @@ export function toEmployeeDocument(record: DocumentRecord, employeeId: string): 
     type: labelFor(record.type),
     title: record.title,
     issuedOn: record.updatedAt.slice(0, 10),
+    period: record.period,
   }
 }
 

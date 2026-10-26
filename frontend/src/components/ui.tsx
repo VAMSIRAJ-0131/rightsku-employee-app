@@ -217,7 +217,10 @@ export function IconButton({
       aria-label={label}
       className="relative grid h-11 w-11 place-items-center rounded-full text-ink-soft hover:bg-mist-50"
     >
-      <Icon name={icon} className="h-[22px] w-[22px]" />
+      {/* Unread notifications: the bell gives a gentle ring every few seconds. */}
+      <span className={`grid place-items-center ${icon === 'bell' && count ? 'bell-ring' : ''}`}>
+        <Icon name={icon} className="h-[22px] w-[22px]" />
+      </span>
       {count ? (
         <span className="tnum absolute right-[5px] top-[5px] grid h-[18px] min-w-[18px] place-items-center rounded-full bg-rejected-ink px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-white">
           {count > 99 ? '99+' : count}
@@ -282,8 +285,12 @@ export function ListRow({
 /** Label on the left, value on the right (profile and summary rows). */
 export function DetailRow({ icon, label, value }: { icon?: IconName; label: string; value: string }) {
   return (
-    <div className="flex min-h-13 items-center gap-3 px-4 py-3">
-      {icon && <Icon name={icon} className="h-[18px] w-[18px] shrink-0 text-mist-500" />}
+    <div className="flex min-h-14 items-center gap-3 px-4 py-3">
+      {icon && (
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-royal-50 text-royal-700">
+          <Icon name={icon} className="h-[18px] w-[18px]" />
+        </span>
+      )}
       <span className="text-[14px] text-ink-muted">{label}</span>
       {value ? (
         <span className="ml-auto truncate pl-3 text-right text-[14px] font-medium text-ink">{value}</span>

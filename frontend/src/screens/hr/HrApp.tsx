@@ -20,6 +20,7 @@ import EmployeesScreen from './EmployeesScreen'
 import HolidaysScreen from './HolidaysScreen'
 import HrDocumentsScreen from './HrDocumentsScreen'
 import SalarySummaryScreen from './SalarySummaryScreen'
+import { startPush } from '../../lib/push'
 
 type Tab = 'home' | 'approvals' | 'employees' | 'documents'
 type SubScreen = 'roles' | 'reports' | 'audit' | 'holidays' | 'salary' | 'company' | null
@@ -53,6 +54,22 @@ export default function HrApp({
   const { show, toast } = useToast()
   const [countsVersion, setCountsVersion] = useState(0)
   const [counts, setCounts] = useState<{ active: number; inactive: number } | null>(null)
+
+  // Pushes to HR's phone (for example requests waiting 2 days or more):
+  // tapping one opens the leave approvals queue.
+  useEffect(() => {
+    void startPush(
+      token,
+      () => {
+        setSub(null)
+        setApprovalView('leaves')
+        setApprovalStatus('PENDING')
+        setOpenCount((n) => n + 1)
+        setTab('approvals')
+      },
+      () => {},
+    )
+  }, [token])
 
   // Real employee counts for the home screen and reports.
   useEffect(() => {

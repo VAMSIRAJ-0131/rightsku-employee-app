@@ -30,6 +30,13 @@
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
 
+        <!-- Push notifications: signs in to Firebase Cloud Messaging with a service account key -->
+        <dependency>
+            <groupId>com.google.auth</groupId>
+            <artifactId>google-auth-library-oauth2-http</artifactId>
+            <version>1.54.0</version>
+        </dependency>
+
         <!-- Database access -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

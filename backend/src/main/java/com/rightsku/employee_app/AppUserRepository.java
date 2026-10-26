@@ -11,6 +11,9 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     /** Employee ID lookup; case-insensitive, matching the UPPER(login_id) unique index. */
     Optional<AppUser> findByLoginIdIgnoreCase(String loginId);
 
+    /** Active accounts with this role (for example every HR Admin, for their reminders). */
+    java.util.List<AppUser> findByRoleAndActiveTrue(String role);
+
     boolean existsByEmailIgnoreCase(String email);
 
     boolean existsByRole(String role);

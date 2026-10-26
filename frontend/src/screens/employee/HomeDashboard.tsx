@@ -184,6 +184,7 @@ const KEY_DOCS: { type: DocType; label: string; pending: string }[] = [
   { type: 'Offer Letter', label: 'Offer letter', pending: 'Not uploaded yet' },
   { type: 'Experience Letter', label: 'Experience letter', pending: 'Issued when you leave' },
   { type: 'Form 16', label: 'Form 16', pending: 'Issued after each financial year' },
+  { type: 'Compensation Letter', label: 'Compensation / Hike letter', pending: 'Issued with your yearly hike' },
 ]
 
 /** "Payslip - August 2026" → "August" (the title HR's upload gives each payslip). */

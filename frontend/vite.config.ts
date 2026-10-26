@@ -11,6 +11,16 @@ export default defineConfig(({ mode }) => ({
   // relative (e.g. /api/auth/login), as the tests expect. `npm run dev` and
   // `npm run build` still read .env as before.
   envDir: mode === 'test' ? false : undefined,
+  build: {
+    rollupOptions: {
+      output: {
+        // The pdf.js reader (payslip View) ships as an .mjs file; some Android
+        // web views don't serve ".mjs" as JavaScript, so it is named ".js".
+        assetFileNames: (asset) =>
+          asset.names?.some((n) => n.endsWith('.mjs')) ? 'assets/[name]-[hash].js' : 'assets/[name]-[hash][extname]',
+      },
+    },
+  },
   server: {
     // Development only: forward /api calls to the Spring Boot backend, so the
     // browser sees one origin and no CORS setup is needed.
